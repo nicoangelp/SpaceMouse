@@ -1,0 +1,6 @@
+{
+  "name": "DIY SpaceMouse Studio",
+  "description": "ESP32 6-DOF 3D SpaceMouse configurator, WebSerial live tuner, Fusion 360 & Blender button mapping studio, sensor calibration wizard, and firmware generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #050608;
+    color: #f1f5f9;
+  }
+
+  code, pre, kbd, samp {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090b0e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e2632;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #06b6d4;
+}
+
+/* Cyber Glow Accents */
+.glow-cyan {
+  box-shadow: 0 0 20px -5px rgba(6, 182, 212, 0.35);
+}
+
+.glow-cyan-sm {
+  box-shadow: 0 0 10px -2px rgba(6, 182, 212, 0.25);
+}
+
+.glow-purple-sm {
+  box-shadow: 0 0 10px -2px rgba(168, 85, 247, 0.25);
+}
+
+.glow-emerald-sm {
+  box-shadow: 0 0 10px -2px rgba(16, 185, 129, 0.25);
+}
+
+.glow-amber-sm {
+  box-shadow: 0 0 10px -2px rgba(245, 158, 11, 0.25);
+}
+
+/* Range input styling */
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #06b6d4;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.8);
+  transition: transform 0.1s ease, background 0.1s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  background: #22d3ee;
+}
