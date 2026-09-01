@@ -1,103 +1,109 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LedRingConfig, IdleAnimationType, ActiveAnimationType, SixDofState } from '../types';
 import {
-  Sparkles,
   Sun,
-  Palette,
-  Zap,
-  Play,
-  Pause,
+  Sparkles,
   RotateCw,
-  Sliders,
-  Paintbrush,
-  Layers,
-  Flame,
+  Palette,
   Activity,
+  Zap,
+  Flame,
   CheckCircle,
-  Copy,
-  Radio,
   Eye,
-  RefreshCw,
+  Sliders,
+  BatteryCharging,
+  Layers,
+  Compass,
+  Repeat,
 } from 'lucide-react';
 
 interface LedRingCustomizerTabProps {
-  config?: LedRingConfig;
-  ledRing?: LedRingConfig;
-  onChangeConfig?: (config: LedRingConfig) => void;
-  onChangeLedRing?: (config: LedRingConfig) => void;
-  sixDofState: SixDofState;
+  config: LedRingConfig;
+  onChangeConfig: (config: LedRingConfig) => void;
+  sixDofState?: SixDofState;
 }
 
-const PRESET_PALETTES = [
-  { name: 'Autodesk Orange', primary: '#ff8800', secondary: '#00e5ff', accent: '#ff3366' },
-  { name: 'Blender Sky', primary: '#ea580c', secondary: '#38bdf8', accent: '#fbbf24' },
-  { name: 'Cyberpunk Neon', primary: '#00ffcc', secondary: '#ff007f', accent: '#ffe600' },
-  { name: 'Vaporwave Sunset', primary: '#ff71ce', secondary: '#01cdfe', accent: '#05ffa1' },
-  { name: 'Matrix Emerald', primary: '#10b981', secondary: '#064e3b', accent: '#34d399' },
-  { name: 'SolidWorks Red', primary: '#dc2626', secondary: '#0284c7', accent: '#f59e0b' },
-  { name: 'Deep Space Blue', primary: '#3b82f6', secondary: '#8b5cf6', accent: '#06b6d4' },
-  { name: 'Pure Minimalist', primary: '#f8fafc', secondary: '#64748b', accent: '#38bdf8' },
+const PRESET_COLOR_PALETTES = [
+  { name: 'OOFO Cyan', primary: '#00e5ff', secondary: '#0055ff', accent: '#ffffff' },
+  { name: 'Fusion Ember', primary: '#ff7700', secondary: '#ff0055', accent: '#ffea00' },
+  { name: 'Blender Orange', primary: '#e87d0d', secondary: '#00a3ff', accent: '#ffffff' },
+  { name: 'Emerald CAD', primary: '#10b981', secondary: '#06b6d4', accent: '#a7f3d0' },
+  { name: 'Pure Violet', primary: '#a855f7', secondary: '#ec4899', accent: '#ffffff' },
+  { name: 'Stealth White', primary: '#e2e8f0', secondary: '#475569', accent: '#38bdf8' },
+];
+
+const IDLE_ANIMATION_OPTIONS: Array<{ id: IdleAnimationType; label: string; desc: string }> = [
+  { id: 'breathing', label: 'Breathing Pulse', desc: 'Sinusoidal ambient color breath' },
+  { id: 'spinning', label: 'Radar Sweep', desc: 'Rotating directional halo sweep' },
+  { id: 'rainbow_cycle', label: 'Rainbow Flow', desc: 'Full-spectrum RGB color evolution' },
+  { id: 'two_halves_bouncing', label: 'Dual Orbit', desc: 'Two symmetric light pulses meeting at poles' },
+  { id: 'sweeping', label: 'Clockwise Chase', desc: 'Smooth trailing particle ring' },
+  { id: 'static_solid', label: 'Solid Glow', desc: 'Steady single or dual-tone illumination' },
+];
+
+const ACTIVE_ANIMATION_OPTIONS: Array<{ id: ActiveAnimationType; label: string; desc: string }> = [
+  { id: 'rotational_twist_swirl', label: 'Kinematic Swirl', desc: 'Spins ring dynamically with 6-DOF deflection' },
+  { id: 'deflection_brightness', label: 'Force Brightness', desc: 'Glows brighter when pushing or pulling knob' },
+  { id: 'axis_angle_spectrum', label: 'Tilt Spectrum', desc: 'Shifts color hue dynamically based on tilt angle' },
+  { id: 'velocity_pulse', label: 'Velocity Ripple', desc: 'Smooth acceleration-driven ripples' },
+  { id: 'match_idle', label: 'Match Idle', desc: 'Maintains undisturbed ambient glow' },
 ];
 
 export const LedRingCustomizerTab: React.FC<LedRingCustomizerTabProps> = ({
   config,
-  ledRing: propLedRing,
   onChangeConfig,
-  onChangeLedRing: propOnChangeLedRing,
   sixDofState,
 }) => {
-  const ledRing: LedRingConfig = config || propLedRing || {
-    brightness: 65,
-    primaryColor: '#ff8800',
-    secondaryColor: '#00e5ff',
-    accentColor: '#ff007f',
-    idleAnimation: 'breathing',
-    idleSpeed: 5,
-    activeAnimation: 'rotational_twist_swirl',
-    activeSpeed: 6,
-    individualLeds: Array(24).fill('#ff8800'),
-    ledCount: 24,
-  };
+  const [previewMode, setPreviewMode] = useState<'idle' | 'active' | 'battery_gauge' | 'profile_spin'>('idle');
+  const [selectedLedIndex, setSelectedLedIndex] = useState<number | null>(null);
 
-  const onChangeLedRing = (updatedConfig: LedRingConfig) => {
-    if (onChangeConfig) onChangeConfig(updatedConfig);
-    if (propOnChangeLedRing) propOnChangeLedRing(updatedConfig);
-  };
-
-  const [previewMode, setPreviewMode] = useState<'idle' | 'active'>('idle');
-  const [isPlaying, setIsPlaying] = useState<boolean>(true);
-  const [selectedBrushColor, setSelectedBrushColor] = useState<string>(ledRing?.primaryColor || '#ff8800');
-  const [simulatedTwist, setSimulatedTwist] = useState<number>(0);
-  const [simulatedForce, setSimulatedForce] = useState<number>(0.5);
-  const [copiedCode, setCopiedCode] = useState<boolean>(false);
-  const [hoveredLedIndex, setHoveredLedIndex] = useState<number | null>(null);
-
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animFrameRef = useRef<number | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const startTimeRef = useRef<number>(performance.now());
 
-  // Convert hex color to RGB
-  const hexToRgb = (hex: string): [number, number, number] => {
-    const clean = hex.replace('#', '');
-    const num = parseInt(clean, 16);
-    if (isNaN(num)) return [0, 229, 255];
-    if (clean.length === 3) {
-      const r = parseInt(clean[0] + clean[0], 16);
-      const g = parseInt(clean[1] + clean[1], 16);
-      const b = parseInt(clean[2] + clean[2], 16);
-      return [r, g, b];
-    }
-    return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+  const ledRing: LedRingConfig = {
+    brightness: config.brightness ?? 65,
+    primaryColor: config.primaryColor || '#00e5ff',
+    secondaryColor: config.secondaryColor || '#0055ff',
+    accentColor: config.accentColor || '#ffffff',
+    idleAnimation: config.idleAnimation || 'breathing',
+    idleSpeed: config.idleSpeed ?? 5,
+    activeAnimation: config.activeAnimation || 'rotational_twist_swirl',
+    activeSpeed: config.activeSpeed ?? 5,
+    individualLeds: config.individualLeds || Array(24).fill(config.primaryColor || '#00e5ff'),
+    ledCount: 24,
+    rotationOffsetDeg: config.rotationOffsetDeg ?? 0,
+    rotationLedOffset: config.rotationLedOffset ?? 0,
   };
 
-  const rgbToHex = (r: number, g: number, b: number): string => {
-    const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-    return (
-      '#' +
-      clamp(r).toString(16).padStart(2, '0') +
-      clamp(g).toString(16).padStart(2, '0') +
-      clamp(b).toString(16).padStart(2, '0')
-    );
+  const currentLedOffset = ledRing.rotationLedOffset || 0;
+
+  const handleUpdate = (updated: Partial<LedRingConfig>) => {
+    onChangeConfig({ ...ledRing, ...updated });
+  };
+
+  // Helper to convert rotation angle to LED offset
+  const handleAngleChange = (deg: number) => {
+    const normalizedDeg = ((deg % 360) + 360) % 360;
+    const ledOffset = Math.round(normalizedDeg / 15) % 24;
+    handleUpdate({
+      rotationOffsetDeg: normalizedDeg,
+      rotationLedOffset: ledOffset,
+    });
+  };
+
+  const handleLedOffsetChange = (leds: number) => {
+    const normalizedLeds = ((leds % 24) + 24) % 24;
+    const deg = normalizedLeds * 15;
+    handleUpdate({
+      rotationOffsetDeg: deg,
+      rotationLedOffset: normalizedLeds,
+    });
+  };
+
+  const hexToRgb = (hex: string): [number, number, number] => {
+    const cleanHex = hex.replace('#', '');
+    const bigint = parseInt(cleanHex.length === 3 ? cleanHex.split('').map((c) => c + c).join('') : cleanHex, 16);
+    return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
   };
 
   const lerpColor = (c1: [number, number, number], c2: [number, number, number], t: number): [number, number, number] => {
@@ -109,839 +115,487 @@ export const LedRingCustomizerTab: React.FC<LedRingCustomizerTabProps> = ({
     ];
   };
 
-  // Helper to calculate estimated LED power draw in milliamps
-  // 24 WS2812B / SK6812 LEDs draw ~50mA at 100% white each, scaled by brightness
-  const estimatedLedMa = Math.round((ledRing.brightness / 100) * 24 * 35 * 0.7);
-
-  // Animation calculation for 24 LEDs
+  // Canvas visual rendering with software angle rotation and wide speed curves (slow crawl to blur fast)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let running = true;
+    let animationId: number;
 
     const render = (now: number) => {
-      if (!running) return;
-
       const elapsedSec = (now - startTimeRef.current) / 1000;
-      const numLeds = ledRing.ledCount || 24;
+      const numLeds = 24;
       const pRgb = hexToRgb(ledRing.primaryColor);
       const sRgb = hexToRgb(ledRing.secondaryColor);
-      const aRgb = hexToRgb(ledRing.accentColor);
-      const masterBrightness = (ledRing.brightness / 100);
+      const masterBrightness = ledRing.brightness / 100;
 
-      // Compute color for each of the 24 LEDs
-      const currentLedColors: Array<[number, number, number]> = [];
-
-      // Determine active vs idle motion status
-      const realOrSimTwist = previewMode === 'active' ? (sixDofState.rz !== 0 ? sixDofState.rz : simulatedTwist) : 0;
-      const realOrSimForce = previewMode === 'active' ? (Math.sqrt(sixDofState.x ** 2 + sixDofState.y ** 2 + sixDofState.z ** 2) || simulatedForce) : 0;
-
-      if (previewMode === 'idle') {
-        const speed = ledRing.idleSpeed * 0.8;
-        const phase = elapsedSec * speed;
-
-        for (let i = 0; i < numLeds; i++) {
-          const ledAngleRatio = i / numLeds; // 0 to 1
-
-          switch (ledRing.idleAnimation) {
-            case 'breathing': {
-              // Smooth sinusoidal breath pulse
-              const pulse = (Math.sin(phase * 2) + 1) / 2; // 0 to 1
-              const col = lerpColor(sRgb, pRgb, pulse);
-              currentLedColors.push([
-                col[0] * masterBrightness * (0.3 + 0.7 * pulse),
-                col[1] * masterBrightness * (0.3 + 0.7 * pulse),
-                col[2] * masterBrightness * (0.3 + 0.7 * pulse),
-              ]);
-              break;
-            }
-
-            case 'spinning': {
-              // Revolving comet with decaying tail
-              const head = (phase * 2) % 1;
-              let dist = (ledAngleRatio - head + 1) % 1;
-              const intensity = Math.pow(1 - dist, 3.5);
-              const col = lerpColor(sRgb, pRgb, intensity);
-              currentLedColors.push([
-                col[0] * masterBrightness * intensity,
-                col[1] * masterBrightness * intensity,
-                col[2] * masterBrightness * intensity,
-              ]);
-              break;
-            }
-
-            case 'two_halves_bouncing': {
-              // Dual bouncing ping-pong pulses from top to bottom
-              const bounce = (Math.sin(phase * 2.5) + 1) / 2; // 0 to 1
-              const pos1 = bounce * 0.5; // 0 to 0.5
-              const pos2 = 1 - bounce * 0.5; // 1 to 0.5
-              const dist1 = Math.min(Math.abs(ledAngleRatio - pos1), 1 - Math.abs(ledAngleRatio - pos1));
-              const dist2 = Math.min(Math.abs(ledAngleRatio - pos2), 1 - Math.abs(ledAngleRatio - pos2));
-              const int1 = Math.max(0, 1 - dist1 * 5);
-              const int2 = Math.max(0, 1 - dist2 * 5);
-              const totalInt = Math.min(1, int1 + int2);
-              const col = int1 > int2 ? pRgb : aRgb;
-              currentLedColors.push([
-                col[0] * masterBrightness * (0.15 + 0.85 * totalInt),
-                col[1] * masterBrightness * (0.15 + 0.85 * totalInt),
-                col[2] * masterBrightness * (0.15 + 0.85 * totalInt),
-              ]);
-              break;
-            }
-
-            case 'sweeping': {
-              // Radar sweep
-              const sweepPos = (phase * 1.5) % 1;
-              let dist = (ledAngleRatio - sweepPos + 1) % 1;
-              const intSweep = Math.pow(Math.max(0, 1 - dist), 2.2);
-              const col = lerpColor(sRgb, pRgb, intSweep);
-              currentLedColors.push([
-                col[0] * masterBrightness * intSweep,
-                col[1] * masterBrightness * intSweep,
-                col[2] * masterBrightness * intSweep,
-              ]);
-              break;
-            }
-
-            case 'rainbow_cycle': {
-              // 360 rainbow spectrum rotation
-              const hue = ((ledAngleRatio + phase * 0.4) % 1) * 360;
-              const rgb = hslToRgb(hue, 1, 0.5);
-              currentLedColors.push([
-                rgb[0] * masterBrightness,
-                rgb[1] * masterBrightness,
-                rgb[2] * masterBrightness,
-              ]);
-              break;
-            }
-
-            case 'comet_tail': {
-              // Fast twin comets
-              const head1 = (phase * 1.8) % 1;
-              const head2 = (phase * 1.8 + 0.5) % 1;
-              const dist1 = (ledAngleRatio - head1 + 1) % 1;
-              const dist2 = (ledAngleRatio - head2 + 1) % 1;
-              const int1 = Math.pow(1 - dist1, 4.0);
-              const int2 = Math.pow(1 - dist2, 4.0);
-              const col1 = lerpColor(sRgb, pRgb, int1);
-              const col2 = lerpColor(sRgb, aRgb, int2);
-              currentLedColors.push([
-                (col1[0] * int1 + col2[0] * int2) * masterBrightness,
-                (col1[1] * int1 + col2[1] * int2) * masterBrightness,
-                (col1[2] * int1 + col2[2] * int2) * masterBrightness,
-              ]);
-              break;
-            }
-
-            case 'custom_per_led': {
-              const hex = ledRing.individualLeds?.[i] || ledRing.primaryColor;
-              const rgb = hexToRgb(hex);
-              currentLedColors.push([
-                rgb[0] * masterBrightness,
-                rgb[1] * masterBrightness,
-                rgb[2] * masterBrightness,
-              ]);
-              break;
-            }
-
-            case 'static_solid':
-            default: {
-              currentLedColors.push([
-                pRgb[0] * masterBrightness,
-                pRgb[1] * masterBrightness,
-                pRgb[2] * masterBrightness,
-              ]);
-              break;
-            }
-          }
-        }
-      } else {
-        // ACTIVE / IN-USE ANIMATION
-        const speed = ledRing.activeSpeed * 1.2;
-        const phase = elapsedSec * speed;
-
-        for (let i = 0; i < numLeds; i++) {
-          const ledAngleRatio = i / numLeds;
-          const ledAngleRad = ledAngleRatio * Math.PI * 2;
-
-          switch (ledRing.activeAnimation) {
-            case 'rotational_twist_swirl': {
-              // Rotates around the ring in direction and velocity of knob Yaw
-              const rotationOffset = realOrSimTwist * 1.5 + phase * 0.3;
-              const shiftedRatio = (ledAngleRatio - rotationOffset + 10) % 1;
-              const pulse = (Math.sin(shiftedRatio * Math.PI * 4) + 1) / 2;
-              const col = lerpColor(pRgb, aRgb, pulse);
-              const boost = Math.min(1.5, 0.7 + Math.abs(realOrSimTwist) * 1.2);
-              currentLedColors.push([
-                Math.min(255, col[0] * masterBrightness * boost),
-                Math.min(255, col[1] * masterBrightness * boost),
-                Math.min(255, col[2] * masterBrightness * boost),
-              ]);
-              break;
-            }
-
-            case 'deflection_brightness': {
-              // Flare focused in direction of 6-DOF tilt (X/Y) with intensity = total deflection force
-              const forceAngle = Math.atan2(sixDofState.y || 0.1, sixDofState.x || 0.1);
-              let angleDiff = Math.abs(ledAngleRad - forceAngle);
-              if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-              const proximity = Math.max(0, 1 - angleDiff / Math.PI);
-              const flare = Math.pow(proximity, 2.5) * (0.4 + 1.2 * realOrSimForce);
-              const col = lerpColor(sRgb, pRgb, flare);
-              currentLedColors.push([
-                Math.min(255, col[0] * masterBrightness * (0.2 + 0.8 * flare)),
-                Math.min(255, col[1] * masterBrightness * (0.2 + 0.8 * flare)),
-                Math.min(255, col[2] * masterBrightness * (0.2 + 0.8 * flare)),
-              ]);
-              break;
-            }
-
-            case 'axis_angle_spectrum': {
-              // HSL Hue shifts in real time mapped to 3D orientation
-              const tiltMag = Math.sqrt((sixDofState.rx || 0) ** 2 + (sixDofState.ry || 0) ** 2);
-              const hue = (((ledAngleRatio + tiltMag * 0.5 + phase * 0.2) % 1) * 360);
-              const rgb = hslToRgb(hue, 1, 0.5);
-              currentLedColors.push([
-                rgb[0] * masterBrightness * (0.5 + 0.5 * realOrSimForce),
-                rgb[1] * masterBrightness * (0.5 + 0.5 * realOrSimForce),
-                rgb[2] * masterBrightness * (0.5 + 0.5 * realOrSimForce),
-              ]);
-              break;
-            }
-
-            case 'velocity_pulse': {
-              const strobe = (Math.sin(phase * 8) + 1) / 2;
-              const col = strobe > 0.5 ? aRgb : pRgb;
-              currentLedColors.push([
-                col[0] * masterBrightness * (0.4 + 0.6 * strobe),
-                col[1] * masterBrightness * (0.4 + 0.6 * strobe),
-                col[2] * masterBrightness * (0.4 + 0.6 * strobe),
-              ]);
-              break;
-            }
-
-            case 'orbit_chase': {
-              const head = (phase * (1 + realOrSimForce * 3)) % 1;
-              const dist = (ledAngleRatio - head + 1) % 1;
-              const intOrbit = Math.pow(1 - dist, 4.0);
-              const col = lerpColor(sRgb, pRgb, intOrbit);
-              currentLedColors.push([
-                col[0] * masterBrightness * (0.2 + 0.8 * intOrbit),
-                col[1] * masterBrightness * (0.2 + 0.8 * intOrbit),
-                col[2] * masterBrightness * (0.2 + 0.8 * intOrbit),
-              ]);
-              break;
-            }
-
-            case 'match_idle':
-            default: {
-              const pulse = (Math.sin(phase * 3) + 1) / 2;
-              const col = lerpColor(sRgb, pRgb, pulse);
-              currentLedColors.push([
-                col[0] * masterBrightness,
-                col[1] * masterBrightness,
-                col[2] * masterBrightness,
-              ]);
-              break;
-            }
-          }
-        }
-      }
-
-      // Draw onto Canvas
       const width = canvas.width;
       const height = canvas.height;
       const centerX = width / 2;
-      const centerY = height / 2;
-      const radius = Math.min(width, height) * 0.38;
+      // Position center with ample top margin so 12 o'clock label is NEVER cut off
+      const centerY = height / 2 + 18;
+      const radius = 95;
 
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Draw outer SpaceMouse metallic ring shadow & bevel
+      // Draw background ring PCB track
       ctx.beginPath();
-      ctx.arc(centerX, centerY, radius + 22, 0, Math.PI * 2);
-      ctx.fillStyle = '#06080c';
-      ctx.fill();
-      ctx.strokeStyle = '#1e2632';
-      ctx.lineWidth = 2;
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = '#141822';
+      ctx.lineWidth = 26;
       ctx.stroke();
 
-      // Outer glow diffused under desk
-      const glowGrad = ctx.createRadialGradient(centerX, centerY, radius - 15, centerX, centerY, radius + 35);
-      glowGrad.addColorStop(0, `rgba(${Math.round(pRgb[0])}, ${Math.round(pRgb[1])}, ${Math.round(pRgb[2])}, ${masterBrightness * 0.45})`);
-      glowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
       ctx.beginPath();
-      ctx.arc(centerX, centerY, radius + 35, 0, Math.PI * 2);
-      ctx.fillStyle = glowGrad;
-      ctx.fill();
-
-      // 2. Draw black center pedestal
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius - 22, 0, Math.PI * 2);
-      ctx.fillStyle = '#090d14';
-      ctx.fill();
-      ctx.strokeStyle = '#151d2a';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      // Center logo / knob top
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius * 0.48, 0, Math.PI * 2);
-      ctx.fillStyle = '#0e141f';
-      ctx.fill();
-      ctx.strokeStyle = '#00e5ff33';
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = '#232b3c';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Center indicator text
-      ctx.fillStyle = '#64748b';
-      ctx.font = '10px JetBrains Mono, monospace';
+      // Top North marker on the housing (12 o'clock front of OOFO One)
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY - radius - 16);
+      ctx.lineTo(centerX - 6, centerY - radius - 26);
+      ctx.lineTo(centerX + 6, centerY - radius - 26);
+      ctx.closePath();
+      ctx.fillStyle = '#00e5ff';
+      ctx.fill();
+
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = '#94a3b8';
       ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`24x NEOPIXEL`, centerX, centerY - 6);
-      ctx.fillStyle = previewMode === 'active' ? '#00e5ff' : '#a855f7';
-      ctx.font = 'bold 9px JetBrains Mono, monospace';
-      ctx.fillText(previewMode === 'active' ? '● IN-USE ACTIVE' : '○ IDLE ANIMATION', centerX, centerY + 8);
+      ctx.fillText('12 O\'CLOCK (FRONT)', centerX, centerY - radius - 32);
 
-      // 3. Draw each of the 24 individual NeoPixel LEDs
+      // Compute colors for each LED with rotation offset applied
+      const rotShift = currentLedOffset;
+
+      // Speed mapping: Level 1 = 0.02 (crawl), Level 5 = 1.5 (moderate), Level 10 = 16.0 (blur fast!)
+      const speedSlider = ledRing.idleSpeed;
+      const speedCurve = 0.02 + Math.pow((speedSlider - 1) / 9, 2.5) * 16.0;
+
       for (let i = 0; i < numLeds; i++) {
-        const angle = (i / numLeds) * Math.PI * 2 - Math.PI / 2; // Start from 12 o'clock top
-        const x = centerX + Math.cos(angle) * radius;
-        const y = centerY + Math.sin(angle) * radius;
-        const [r, g, b] = currentLedColors[i] || [0, 0, 0];
-        const hex = rgbToHex(r, g, b);
-        const isHovered = hoveredLedIndex === i;
+        // Apply software rotation: physical LED i corresponds to logical rotated index
+        const logicalIndex = (i - rotShift + numLeds) % numLeds;
+        const ledAngleRad = ((i * 360) / numLeds - 90) * (Math.PI / 180);
 
-        // Individual LED diffused glow
-        const ledGlow = ctx.createRadialGradient(x, y, 1, x, y, isHovered ? 18 : 12);
-        ledGlow.addColorStop(0, `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, 0.9)`);
-        ledGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        const x = centerX + radius * Math.cos(ledAngleRad);
+        const y = centerY + radius * Math.sin(ledAngleRad);
+
+        let rgb: [number, number, number] = pRgb;
+
+        if (previewMode === 'profile_spin') {
+          // Profile switch visual feedback: 3 fast spins in profile primary color
+          const spinProgress = (elapsedSec * 2.5) % 1;
+          const head = spinProgress * numLeds;
+          const dist = (logicalIndex - head + numLeds) % numLeds;
+          const trail = Math.max(0, 1 - dist / 8);
+          rgb = lerpColor([15, 23, 42], pRgb, trail);
+        } else if (previewMode === 'battery_gauge') {
+          // Battery gauge preview: 18/24 LEDs lit (75% battery), green zone
+          // Starts from logical index 0 (12 o'clock) respecting the rotation offset
+          const simulatedLedsLit = 18;
+          const isLit = logicalIndex < simulatedLedsLit;
+          rgb = isLit ? [16, 185, 129] : [30, 41, 59]; // Emerald vs Dark
+        } else if (previewMode === 'idle') {
+          switch (ledRing.idleAnimation) {
+            case 'breathing': {
+              const phase = elapsedSec * speedCurve;
+              const b = (Math.sin(phase) + 1) / 2;
+              rgb = lerpColor(pRgb, sRgb, b);
+              break;
+            }
+            case 'spinning': {
+              const pos = ((logicalIndex / numLeds + elapsedSec * (speedCurve * 0.2)) % 1 + 1) % 1;
+              rgb = lerpColor(pRgb, sRgb, pos);
+              break;
+            }
+            case 'rainbow_cycle': {
+              const hue = (((logicalIndex / numLeds + elapsedSec * (speedCurve * 0.15)) % 1 + 1) % 1) * 360;
+              const hPrime = hue / 60;
+              const c = 1, xH = 1 - Math.abs((hPrime % 2) - 1);
+              let r = 0, g = 0, b = 0;
+              if (hPrime >= 0 && hPrime < 1) { r = c; g = xH; }
+              else if (hPrime < 2) { r = xH; g = c; }
+              else if (hPrime < 3) { g = c; b = xH; }
+              else if (hPrime < 4) { g = xH; b = c; }
+              else if (hPrime < 5) { r = xH; b = c; }
+              else { r = c; b = xH; }
+              rgb = [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+              break;
+            }
+            case 'two_halves_bouncing': {
+              const t = (Math.sin(elapsedSec * (speedCurve * 0.3)) + 1) / 2;
+              const dist = Math.abs(logicalIndex - 12) / 12;
+              const factor = (Math.sin((dist + t) * Math.PI) + 1) / 2;
+              rgb = lerpColor(pRgb, sRgb, factor);
+              break;
+            }
+            case 'sweeping': {
+              const head = (((elapsedSec * (speedCurve * 0.25)) % 1 + 1) % 1) * numLeds;
+              const diff = ((logicalIndex - head + numLeds) % numLeds) / numLeds;
+              rgb = lerpColor(pRgb, sRgb, diff);
+              break;
+            }
+            case 'static_solid':
+            default:
+              rgb = pRgb;
+              break;
+          }
+        } else {
+          // Active preview mode
+          const state = sixDofState || { x: 0.4, y: 0.2, z: 0.1, rx: 0, ry: 0, rz: 0.5, rawAdc: [], buttonsPressed: [], timestamp: 0 };
+          const deflection = Math.sqrt((state.x || 0) ** 2 + (state.y || 0) ** 2 + (state.z || 0) ** 2);
+          const activeSpeedVal = 0.04 + Math.pow((ledRing.activeSpeed - 1) / 9, 2.5) * 10.0;
+
+          switch (ledRing.activeAnimation) {
+            case 'rotational_twist_swirl': {
+              const spin = ((logicalIndex / numLeds + elapsedSec * activeSpeedVal + (state.rz || 0) * 0.4) % 1 + 1) % 1;
+              rgb = lerpColor(pRgb, sRgb, spin);
+              break;
+            }
+            case 'deflection_brightness': {
+              const boost = Math.min(1, deflection * 1.5);
+              rgb = lerpColor(pRgb, [255, 255, 255], boost);
+              break;
+            }
+            case 'axis_angle_spectrum': {
+              const angle = Math.atan2(state.y || 0, state.x || 0);
+              const normAngle = ((angle / (Math.PI * 2) + 0.5) % 1 + 1) % 1;
+              rgb = lerpColor(pRgb, sRgb, normAngle);
+              break;
+            }
+            default:
+              rgb = pRgb;
+              break;
+          }
+        }
+
+        // Apply Master Brightness
+        const rFin = Math.round(rgb[0] * masterBrightness);
+        const gFin = Math.round(rgb[1] * masterBrightness);
+        const bFin = Math.round(rgb[2] * masterBrightness);
+
+        // Draw LED Glow Halo
+        const glowGrad = ctx.createRadialGradient(x, y, 0, x, y, 14);
+        glowGrad.addColorStop(0, `rgba(${rFin}, ${gFin}, ${bFin}, 0.8)`);
+        glowGrad.addColorStop(1, `rgba(${rFin}, ${gFin}, ${bFin}, 0)`);
+        ctx.fillStyle = glowGrad;
         ctx.beginPath();
-        ctx.arc(x, y, isHovered ? 18 : 12, 0, Math.PI * 2);
-        ctx.fillStyle = ledGlow;
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
         ctx.fill();
 
-        // LED Diode package
+        // Draw LED Core Die
         ctx.beginPath();
-        ctx.arc(x, y, isHovered ? 7.5 : 5.5, 0, Math.PI * 2);
-        ctx.fillStyle = hex;
+        ctx.arc(x, y, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgb(${rFin}, ${gFin}, ${bFin})`;
         ctx.fill();
-        ctx.strokeStyle = isHovered ? '#ffffff' : '#050608';
-        ctx.lineWidth = isHovered ? 2 : 1;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = i === rotShift ? 1.5 : 0.5; // Highlight physical LED 0
         ctx.stroke();
 
-        // LED index number near perimeter
-        if (numLeds <= 24) {
-          const numX = centerX + Math.cos(angle) * (radius + 14);
-          const numY = centerY + Math.sin(angle) * (radius + 14);
-          ctx.fillStyle = isHovered ? '#38bdf8' : '#475569';
-          ctx.font = '8px JetBrains Mono, monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(`${i}`, numX, numY);
+        // Physical LED 0 marker (badge)
+        if (i === 0) {
+          ctx.beginPath();
+          ctx.arc(x, y, 7.5, 0, Math.PI * 2);
+          ctx.strokeStyle = '#ff0055';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
         }
       }
 
-      if (isPlaying) {
-        animFrameRef.current = requestAnimationFrame(render);
-      }
+      // Center Hub with Current Profile Status
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 52, 0, Math.PI * 2);
+      ctx.fillStyle = '#0c0e14';
+      ctx.fill();
+      ctx.strokeStyle = '#232b3c';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.fillText('24-LED RING', centerX, centerY - 8);
+
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#00e5ff';
+      ctx.fillText(`ROT: ${ledRing.rotationOffsetDeg}° (LED ${currentLedOffset})`, centerX, centerY + 8);
+
+      animationId = requestAnimationFrame(render);
     };
 
-    animFrameRef.current = requestAnimationFrame(render);
-
-    return () => {
-      running = false;
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    };
-  }, [ledRing, previewMode, isPlaying, simulatedTwist, simulatedForce, hoveredLedIndex, sixDofState]);
-
-  // Helper for HSL to RGB
-  function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-    h = h / 360;
-    let r: number, g: number, b: number;
-    if (s === 0) {
-      r = g = b = l;
-    } else {
-      const hue2rgb = (p: number, q: number, t: number) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1 / 6) return p + (q - p) * 6 * t;
-        if (t < 1 / 2) return q;
-        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-        return p;
-      };
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      r = hue2rgb(p, q, h + 1 / 3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1 / 3);
-    }
-    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
-  }
-
-  // Handle clicking on an LED in the circular list to paint it
-  const handlePaintLed = (index: number) => {
-    const updated = [...(ledRing.individualLeds || Array(24).fill(ledRing.primaryColor))];
-    updated[index] = selectedBrushColor;
-    onChangeLedRing({
-      ...ledRing,
-      idleAnimation: 'custom_per_led',
-      individualLeds: updated,
-    });
-  };
-
-  const handleFillAllLeds = (color: string) => {
-    onChangeLedRing({
-      ...ledRing,
-      idleAnimation: 'custom_per_led',
-      individualLeds: Array(24).fill(color),
-    });
-  };
-
-  const handleApplyPalette = (palette: typeof PRESET_PALETTES[0]) => {
-    onChangeLedRing({
-      ...ledRing,
-      primaryColor: palette.primary,
-      secondaryColor: palette.secondary,
-      accentColor: palette.accent,
-      individualLeds: Array.from({ length: 24 }, (_, i) => {
-        if (i < 8) return palette.primary;
-        if (i < 16) return palette.secondary;
-        return palette.accent;
-      }),
-    });
-    setSelectedBrushColor(palette.primary);
-  };
+    animationId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animationId);
+  }, [ledRing, previewMode, sixDofState, currentLedOffset]);
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-cyan-950/40 via-purple-950/30 to-[#080b10] border border-cyan-500/30 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 p-0.5 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <div className="w-full h-full bg-[#07090e] rounded-[10px] flex items-center justify-center text-cyan-300">
-              <Palette className="w-5 h-5" />
-            </div>
+      {/* Top Banner Card */}
+      <div className="p-5 rounded-2xl bg-[#141822] border border-[#232b3c] flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Sun className="w-5 h-5 text-cyan-400" />
+            <h2 className="text-base font-bold text-white tracking-tight">
+              24-NeoPixel LED Ring Studio & Orientation Alignment
+            </h2>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-white font-mono">Adafruit 24 NeoPixel Ring Studio</h2>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-900/60 border border-cyan-400/40 text-cyan-300 font-mono font-semibold">
-                GPIO 15 · WS2812B / SK6812
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 font-mono mt-0.5">
-              Dual-state behavior: distinct animations for <strong>In-Use 6-DOF interaction</strong> vs <strong>Idle desk underglow</strong>.
-            </p>
-          </div>
+          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+            Software-rotate the LED ring so LED 1 aligns with your physical housing mount, tune color schemes, and calibrate speeds from slow crawl to blur.
+          </p>
         </div>
 
-        {/* Live Power Meter Badge */}
-        <div className="flex items-center gap-3 px-3 py-2 bg-[#050608] rounded-xl border border-[#1e2632]">
-          <Zap className="w-4 h-4 text-amber-400" />
-          <div className="text-[11px] font-mono">
-            <span className="text-slate-400">EST. LED CURRENT:</span>{' '}
-            <strong className="text-amber-300">{estimatedLedMa} mA</strong>
-            <span className="text-slate-500 text-[10px] ml-1.5">(@ {ledRing.brightness}% bright)</span>
-          </div>
+        {/* Live Preview Mode Switcher */}
+        <div className="flex items-center p-1 rounded-xl bg-[#0c0e14] border border-[#232b3c] gap-1">
+          <button
+            onClick={() => setPreviewMode('idle')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              previewMode === 'idle'
+                ? 'bg-cyan-500 text-black font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>Ambient Idle</span>
+          </button>
+          <button
+            onClick={() => setPreviewMode('active')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              previewMode === 'active'
+                ? 'bg-amber-500 text-black font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Active 6-DOF</span>
+          </button>
+          <button
+            onClick={() => setPreviewMode('profile_spin')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              previewMode === 'profile_spin'
+                ? 'bg-purple-500 text-white font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Repeat className="w-3.5 h-3.5" />
+            <span>Profile Spin</span>
+          </button>
+          <button
+            onClick={() => setPreviewMode('battery_gauge')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+              previewMode === 'battery_gauge'
+                ? 'bg-emerald-500 text-black font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <BatteryCharging className="w-3.5 h-3.5" />
+            <span>Battery Fuel Gauge</span>
+          </button>
         </div>
       </div>
 
-      {/* Main Grid: Left Stage Visualizer, Right Control Panels */}
+      {/* Main 2-Column Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* LEFT: Live Circular 24-LED Canvas Stage (5 Cols) */}
+        {/* Left: 24-LED Ring Visual Simulator & Software Rotation (5 Cols) */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="p-5 rounded-2xl bg-[#090d14] border border-[#1e2632] space-y-4 shadow-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-cyan-400" />
-                <h3 className="text-xs font-bold text-white uppercase font-mono tracking-wider">
-                  24-LED Ring Visualizer
-                </h3>
-              </div>
-              
-              {/* Play/Pause & Animation Preview State */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="p-1.5 rounded-lg bg-[#050608] border border-[#1e2632] text-slate-400 hover:text-white text-xs transition"
-                  title={isPlaying ? 'Pause Animation' : 'Play Animation'}
-                >
-                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-cyan-400" />}
-                </button>
-
-                <div className="flex rounded-lg bg-[#050608] p-0.5 border border-[#1e2632] text-[11px] font-mono">
-                  <button
-                    onClick={() => setPreviewMode('idle')}
-                    className={`px-2.5 py-1 rounded-md transition ${
-                      previewMode === 'idle'
-                        ? 'bg-purple-600 text-white font-bold shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Idle Mode
-                  </button>
-                  <button
-                    onClick={() => setPreviewMode('active')}
-                    className={`px-2.5 py-1 rounded-md transition ${
-                      previewMode === 'active'
-                        ? 'bg-cyan-500 text-[#050608] font-bold shadow'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    In-Use Active
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Circular Canvas Ring */}
-            <div className="relative flex items-center justify-center py-2">
+          <div className="p-6 rounded-2xl bg-[#141822] border border-[#232b3c] flex flex-col items-center justify-center space-y-5">
+            {/* Canvas Simulator with Generous Top Padding to prevent any cut off */}
+            <div className="relative w-full aspect-square max-w-[340px] bg-[#0c0e14] rounded-2xl border border-[#232b3c] p-2 flex items-center justify-center shadow-inner">
               <canvas
                 ref={canvasRef}
-                width={320}
-                height={320}
-                className="max-w-full rounded-2xl cursor-crosshair"
+                width={340}
+                height={340}
+                className="w-full h-full block"
               />
             </div>
 
-            {/* Test Interactive Motion Trigger (when in Active Preview) */}
-            {previewMode === 'active' && (
-              <div className="p-3 rounded-xl bg-[#050608] border border-cyan-500/30 space-y-2">
-                <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-cyan-300 font-bold flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5" /> Simulate 6-DOF Twist ($R_z$):
-                  </span>
-                  <span className="text-white font-mono">{simulatedTwist.toFixed(2)}</span>
+            {/* Software Rotation Offset Controls */}
+            <div className="w-full p-4 rounded-xl bg-[#0c0e14] border border-[#232b3c] space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <RotateCw className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-bold text-white">Mounting Rotation Alignment</span>
                 </div>
-                <input
-                  type="range"
-                  min="-1"
-                  max="1"
-                  step="0.05"
-                  value={simulatedTwist}
-                  onChange={(e) => setSimulatedTwist(parseFloat(e.target.value))}
-                  className="w-full h-1.5 bg-[#151d2a] rounded-lg appearance-none cursor-pointer accent-cyan-400"
-                />
-                <div className="flex justify-between text-[9px] font-mono text-slate-500">
-                  <span>-1.0 (Twist Left)</span>
-                  <span>0.0 (Neutral)</span>
-                  <span>+1.0 (Twist Right)</span>
-                </div>
+                <span className="text-xs font-mono font-bold text-cyan-400">
+                  {ledRing.rotationOffsetDeg}° (LED {currentLedOffset})
+                </span>
               </div>
-            )}
 
-            {/* Preset Color Themes Bar */}
-            <div className="space-y-2 pt-1 border-t border-[#1e2632]">
-              <label className="text-[11px] font-mono text-slate-400 font-semibold block">
-                Quick CAD Color Themes:
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {PRESET_PALETTES.map((p) => (
-                  <button
-                    key={p.name}
-                    onClick={() => handleApplyPalette(p)}
-                    className="p-2 rounded-lg bg-[#050608] border border-[#1e2632] hover:border-cyan-500/60 transition text-left group"
-                  >
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.primary }} />
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.secondary }} />
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: p.accent }} />
-                    </div>
-                    <span className="text-[10px] text-slate-300 font-mono block truncate group-hover:text-white">
-                      {p.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT: Behavior, Colors, and Animation Controls (7 Cols) */}
-        <div className="lg:col-span-7 space-y-5">
-          {/* Universal Brightness & Speeds */}
-          <div className="p-5 rounded-2xl bg-[#090d14] border border-[#1e2632] space-y-4">
-            <div className="flex items-center gap-2">
-              <Sun className="w-4 h-4 text-amber-400" />
-              <h3 className="text-xs font-bold text-white uppercase font-mono tracking-wider">
-                Universal Brightness & Speed
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Brightness Slider */}
-              <div className="p-3 rounded-xl bg-[#050608] border border-[#1e2632] space-y-1.5">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-slate-300">Master Brightness</span>
-                  <span className="text-amber-400 font-bold">{ledRing.brightness}%</span>
+              {/* Angle Slider */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Rotate LED 1 to match front</span>
+                  <span className="font-mono">{ledRing.rotationOffsetDeg}°</span>
                 </div>
                 <input
                   type="range"
                   min="0"
-                  max="100"
-                  value={ledRing.brightness}
-                  onChange={(e) => onChangeLedRing({ ...ledRing, brightness: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-[#151d2a] rounded-lg appearance-none cursor-pointer accent-amber-400"
+                  max="345"
+                  step="15"
+                  value={ledRing.rotationOffsetDeg}
+                  onChange={(e) => handleAngleChange(parseInt(e.target.value, 10))}
+                  className="w-full h-1.5 bg-[#141822] rounded-lg appearance-none cursor-pointer accent-cyan-400"
                 />
-                <span className="text-[9px] font-mono text-slate-500 block">0% Off &bull; 50% Desk &bull; 100% Max</span>
               </div>
 
-              {/* Idle Animation Speed */}
-              <div className="p-3 rounded-xl bg-[#050608] border border-[#1e2632] space-y-1.5">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-purple-300">Idle Animation Speed</span>
-                  <span className="text-purple-400 font-bold">{ledRing.idleSpeed}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  value={ledRing.idleSpeed}
-                  onChange={(e) => onChangeLedRing({ ...ledRing, idleSpeed: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-[#151d2a] rounded-lg appearance-none cursor-pointer accent-purple-400"
-                />
-                <span className="text-[9px] font-mono text-slate-500 block">1x Relaxed &bull; 10x Fast</span>
-              </div>
-
-              {/* Active Reaction Speed */}
-              <div className="p-3 rounded-xl bg-[#050608] border border-[#1e2632] space-y-1.5">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-cyan-300">In-Use Reaction Speed</span>
-                  <span className="text-cyan-400 font-bold">{ledRing.activeSpeed}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  value={ledRing.activeSpeed}
-                  onChange={(e) => onChangeLedRing({ ...ledRing, activeSpeed: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-[#151d2a] rounded-lg appearance-none cursor-pointer accent-cyan-400"
-                />
-                <span className="text-[9px] font-mono text-slate-500 block">1x Smooth &bull; 10x Twitch</span>
-              </div>
-            </div>
-
-            {/* 3 Main Color Pickers */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-[#1e2632]">
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#050608] border border-[#1e2632]">
-                <input
-                  type="color"
-                  value={ledRing.primaryColor}
-                  onChange={(e) => {
-                    onChangeLedRing({ ...ledRing, primaryColor: e.target.value });
-                    setSelectedBrushColor(e.target.value);
-                  }}
-                  className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
-                />
-                <div>
-                  <span className="text-[10px] font-mono text-slate-400 block">Primary Color</span>
-                  <span className="text-xs font-mono font-bold text-white uppercase">{ledRing.primaryColor}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#050608] border border-[#1e2632]">
-                <input
-                  type="color"
-                  value={ledRing.secondaryColor}
-                  onChange={(e) => onChangeLedRing({ ...ledRing, secondaryColor: e.target.value })}
-                  className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
-                />
-                <div>
-                  <span className="text-[10px] font-mono text-slate-400 block">Secondary Color</span>
-                  <span className="text-xs font-mono font-bold text-white uppercase">{ledRing.secondaryColor}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#050608] border border-[#1e2632]">
-                <input
-                  type="color"
-                  value={ledRing.accentColor}
-                  onChange={(e) => onChangeLedRing({ ...ledRing, accentColor: e.target.value })}
-                  className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
-                />
-                <div>
-                  <span className="text-[10px] font-mono text-slate-400 block">Accent Color</span>
-                  <span className="text-xs font-mono font-bold text-white uppercase">{ledRing.accentColor}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Dual Mode Behavior Selectors (Idle vs Active) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* IDLE ANIMATION SELECTOR */}
-            <div className="p-4 rounded-2xl bg-[#090d14] border border-purple-500/30 space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse" />
-                <h4 className="text-xs font-bold text-purple-300 uppercase font-mono">
-                  1. When Idle (Desk Resting)
-                </h4>
-              </div>
-              <p className="text-[11px] text-slate-400 font-mono">
-                Pattern displayed while CAD puck is untouched:
-              </p>
-
-              <div className="space-y-1.5">
-                {[
-                  { id: 'breathing', label: 'Breathing / Pulse', desc: 'Gentle sine-wave brightness breathing' },
-                  { id: 'spinning', label: 'Spinning Comet', desc: 'Continuous orbital tracer with decaying tail' },
-                  { id: 'two_halves_bouncing', label: 'Two Halves Bouncing', desc: 'Dual pulses ping-ponging from top to bottom' },
-                  { id: 'sweeping', label: 'Sweeping / Radar', desc: '360° radar beam sweep with trail' },
-                  { id: 'rainbow_cycle', label: 'Rainbow Cycle', desc: 'Traveling smooth full RGB spectrum' },
-                  { id: 'comet_tail', label: 'Dual Orbit Comets', desc: 'Two high-speed synchronized runners' },
-                  { id: 'static_solid', label: 'Static Solid Color', desc: 'Solid primary color desk wash' },
-                  { id: 'custom_per_led', label: 'Custom Per-LED Matrix', desc: 'User-painted 24-LED custom pattern' },
-                ].map((item) => (
-                  <label
-                    key={item.id}
-                    className={`flex items-start gap-2.5 p-2 rounded-xl cursor-pointer border transition text-xs font-mono ${
-                      ledRing.idleAnimation === item.id
-                        ? 'bg-purple-950/40 border-purple-500/60 text-white'
-                        : 'bg-[#050608] border-[#1e2632] text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="idleAnim"
-                      value={item.id}
-                      checked={ledRing.idleAnimation === item.id}
-                      onChange={(e) => onChangeLedRing({ ...ledRing, idleAnimation: e.target.value as IdleAnimationType })}
-                      className="mt-0.5 accent-purple-500"
-                    />
-                    <div>
-                      <span className="font-bold text-white block">{item.label}</span>
-                      <span className="text-[10px] text-slate-400 block">{item.desc}</span>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* ACTIVE IN-USE REACTION SELECTOR */}
-            <div className="p-4 rounded-2xl bg-[#090d14] border border-cyan-500/30 space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
-                <h4 className="text-xs font-bold text-cyan-300 uppercase font-mono">
-                  2. When In-Use (6-DOF Moving)
-                </h4>
-              </div>
-              <p className="text-[11px] text-slate-400 font-mono">
-                Real-time reactive visual feedback while manipulating CAD:
-              </p>
-
-              <div className="space-y-1.5">
-                {[
-                  { id: 'rotational_twist_swirl', label: 'Rotational Twist Swirl', desc: 'Ring rotates live with physical knob Yaw twist (Rz)' },
-                  { id: 'deflection_brightness', label: 'Deflection Flare & Glow', desc: 'Flares brighter in direction of tilt & total thrust force' },
-                  { id: 'axis_angle_spectrum', label: 'Axis Angle Spectrum', desc: 'Hue dynamically shifts with 3D spatial orientation' },
-                  { id: 'velocity_pulse', label: 'Velocity Pulse', desc: 'High-speed reactive strobe on fast maneuvers' },
-                  { id: 'orbit_chase', label: 'Orbit Velocity Runner', desc: 'Orbit speed accelerates proportional to CAD velocity' },
-                  { id: 'match_idle', label: 'Match Idle Style', desc: 'Continues peaceful idle animation without reactive burst' },
-                ].map((item) => (
-                  <label
-                    key={item.id}
-                    className={`flex items-start gap-2.5 p-2 rounded-xl cursor-pointer border transition text-xs font-mono ${
-                      ledRing.activeAnimation === item.id
-                        ? 'bg-cyan-950/40 border-cyan-500/60 text-white'
-                        : 'bg-[#050608] border-[#1e2632] text-slate-400 hover:border-slate-600'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="activeAnim"
-                      value={item.id}
-                      checked={ledRing.activeAnimation === item.id}
-                      onChange={(e) => onChangeLedRing({ ...ledRing, activeAnimation: e.target.value as ActiveAnimationType })}
-                      className="mt-0.5 accent-cyan-400"
-                    />
-                    <div>
-                      <span className="font-bold text-white block">{item.label}</span>
-                      <span className="text-[10px] text-slate-400 block">{item.desc}</span>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Individual 24-LED Custom Paint Palette */}
-          <div className="p-4 rounded-2xl bg-[#090d14] border border-[#1e2632] space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Paintbrush className="w-4 h-4 text-emerald-400" />
-                <h4 className="text-xs font-bold text-white uppercase font-mono tracking-wider">
-                  Per-LED 24-Pixel Custom Paint Tool
-                </h4>
-              </div>
-
-              {/* Quick Actions */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleFillAllLeds(selectedBrushColor)}
-                  className="px-2.5 py-1 rounded-lg bg-[#050608] border border-[#1e2632] hover:border-emerald-500 text-[10px] font-mono text-emerald-300 transition"
-                >
-                  Fill All with Brush
-                </button>
-                <button
-                  onClick={() => {
-                    const alt = Array.from({ length: 24 }, (_, i) =>
-                      i % 2 === 0 ? ledRing.primaryColor : ledRing.secondaryColor
-                    );
-                    onChangeLedRing({
-                      ...ledRing,
-                      idleAnimation: 'custom_per_led',
-                      individualLeds: alt,
-                    });
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-[#050608] border border-[#1e2632] hover:border-cyan-500 text-[10px] font-mono text-cyan-300 transition"
-                >
-                  Alternate 1-by-1
-                </button>
-              </div>
-            </div>
-
-            {/* Brush Selector */}
-            <div className="flex items-center gap-3 p-2.5 rounded-xl bg-[#050608] border border-[#1e2632]">
-              <span className="text-xs font-mono text-slate-400">Current Paint Brush:</span>
-              <input
-                type="color"
-                value={selectedBrushColor}
-                onChange={(e) => setSelectedBrushColor(e.target.value)}
-                className="w-7 h-7 rounded-lg cursor-pointer bg-transparent border-0"
-              />
-              <span className="text-xs font-mono font-bold text-white uppercase">{selectedBrushColor}</span>
-              <span className="text-[10px] text-slate-500 font-mono ml-auto">
-                Click any LED box below to paint it
-              </span>
-            </div>
-
-            {/* 24-LED Grid Matrix */}
-            <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
-              {Array.from({ length: 24 }, (_, i) => {
-                const color = ledRing.individualLeds?.[i] || ledRing.primaryColor;
-                return (
+              {/* Quick Rotation Buttons */}
+              <div className="grid grid-cols-4 gap-1.5 pt-1">
+                {[0, 90, 180, 270].map((deg) => (
                   <button
-                    key={i}
-                    onClick={() => handlePaintLed(i)}
-                    onMouseEnter={() => setHoveredLedIndex(i)}
-                    onMouseLeave={() => setHoveredLedIndex(null)}
-                    className="p-2 rounded-lg bg-[#050608] border border-[#1e2632] hover:border-white transition flex flex-col items-center gap-1 group"
-                    title={`LED #${i} · Click to paint with ${selectedBrushColor}`}
+                    key={deg}
+                    onClick={() => handleAngleChange(deg)}
+                    className={`py-1 rounded-lg text-xs font-mono font-semibold transition ${
+                      ledRing.rotationOffsetDeg === deg
+                        ? 'bg-cyan-500 text-black font-bold'
+                        : 'bg-[#141822] text-slate-400 hover:text-white border border-[#232b3c]'
+                    }`}
                   >
-                    <span
-                      className="w-4 h-4 rounded-full shadow-sm group-hover:scale-110 transition"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="text-[9px] font-mono text-slate-400 group-hover:text-white">
-                      #{i}
-                    </span>
+                    {deg}°
                   </button>
-                );
-              })}
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Lighting Customization Controls (7 Cols) */}
+        <div className="lg:col-span-7 space-y-4">
+          <div className="p-6 rounded-2xl bg-[#141822] border border-[#232b3c] space-y-5">
+            {/* Color Palette Presets */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Palette className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Color Theme Presets</span>
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {PRESET_COLOR_PALETTES.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      handleUpdate({
+                        primaryColor: preset.primary,
+                        secondaryColor: preset.secondary,
+                        accentColor: preset.accent,
+                      });
+                    }}
+                    className="p-2.5 rounded-xl bg-[#0c0e14] border border-[#232b3c] hover:border-slate-600 text-left transition flex items-center justify-between group"
+                  >
+                    <div className="space-y-1">
+                      <span className="text-xs font-bold text-white block group-hover:text-cyan-400 transition">
+                        {preset.name}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: preset.primary }} />
+                        <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: preset.secondary }} />
+                        <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: preset.accent }} />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Color Pickers */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#232b3c]">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-300">Primary Color (Idle & Profile)</label>
+                <div className="flex items-center gap-2 bg-[#0c0e14] p-2 rounded-xl border border-[#232b3c]">
+                  <input
+                    type="color"
+                    value={ledRing.primaryColor}
+                    onChange={(e) => handleUpdate({ primaryColor: e.target.value })}
+                    className="w-7 h-7 rounded-lg border-0 bg-transparent cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={ledRing.primaryColor}
+                    onChange={(e) => handleUpdate({ primaryColor: e.target.value })}
+                    className="bg-transparent text-xs font-mono text-white focus:outline-none uppercase w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-300">Secondary Accent Color</label>
+                <div className="flex items-center gap-2 bg-[#0c0e14] p-2 rounded-xl border border-[#232b3c]">
+                  <input
+                    type="color"
+                    value={ledRing.secondaryColor}
+                    onChange={(e) => handleUpdate({ secondaryColor: e.target.value })}
+                    className="w-7 h-7 rounded-lg border-0 bg-transparent cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={ledRing.secondaryColor}
+                    onChange={(e) => handleUpdate({ secondaryColor: e.target.value })}
+                    className="bg-transparent text-xs font-mono text-white focus:outline-none uppercase w-full"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Brightness Slider */}
+            <div className="space-y-2 pt-2 border-t border-[#232b3c]">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-300">Master Ring Brightness</span>
+                <span className="font-mono font-bold text-cyan-400">{ledRing.brightness}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={ledRing.brightness}
+                onChange={(e) => handleUpdate({ brightness: parseInt(e.target.value, 10) })}
+                className="w-full h-1.5 bg-[#0c0e14] rounded-lg appearance-none cursor-pointer accent-cyan-400"
+              />
+            </div>
+
+            {/* Animation Speed Slider (Wide Dynamic Range: crawl to blur!) */}
+            <div className="space-y-2 pt-2 border-t border-[#232b3c]">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-300">Animation Speed (Crawl to Blur Fast)</span>
+                <span className="font-mono font-bold text-purple-400">Level {ledRing.idleSpeed}/10</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={ledRing.idleSpeed}
+                onChange={(e) => handleUpdate({ idleSpeed: parseInt(e.target.value, 10) })}
+                className="w-full h-1.5 bg-[#0c0e14] rounded-lg appearance-none cursor-pointer accent-purple-400"
+              />
+              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                <span>1 (Serene Crawl)</span>
+                <span>5 (Standard)</span>
+                <span>10 (Blur Fast)</span>
+              </div>
+            </div>
+
+            {/* Idle Animation Pattern Selector */}
+            <div className="space-y-2 pt-2 border-t border-[#232b3c]">
+              <span className="text-xs font-bold text-white uppercase tracking-wider block">
+                Idle Ambient Animation Pattern
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {IDLE_ANIMATION_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => handleUpdate({ idleAnimation: opt.id })}
+                    className={`p-3 rounded-xl border text-left transition ${
+                      ledRing.idleAnimation === opt.id
+                        ? 'bg-cyan-950/40 border-cyan-500 shadow-sm'
+                        : 'bg-[#0c0e14] border-[#232b3c] hover:border-slate-600'
+                    }`}
+                  >
+                    <span className="text-xs font-bold text-white block">{opt.label}</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

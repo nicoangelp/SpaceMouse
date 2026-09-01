@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Profile,
   SixDofState,
@@ -7,9 +7,15 @@ import {
   ButtonMapping,
   CalibrationData,
   AxisParameters,
+  LedRingConfig,
+  PowerManagementConfig,
 } from './types';
-import { defaultProfiles, createDefaultLedRing, createDefaultPowerManagement, createDefaultTriangularFlexure } from './data/defaultProfiles';
-import { serialManager } from './services/serialManager';
+import {
+  defaultProfiles,
+  createDefaultLedRing,
+  createDefaultPowerManagement,
+} from './data/defaultProfiles';
+import { hardwareConnection, ConnectionType } from './services/hardwareConnection';
 import { NavigationHeader, ActiveTab } from './components/NavigationHeader';
 import { Visualizer3D } from './components/Visualizer3D';
 import { SixDofGauges } from './components/SixDofGauges';
@@ -23,45 +29,98 @@ import { PowerBatteryManagerTab } from './components/PowerBatteryManagerTab';
 import { SerialMonitorTab } from './components/SerialMonitorTab';
 import { CadIntegrationGuideTab } from './components/CadIntegrationGuideTab';
 import { AiAssistantTab } from './components/AiAssistantTab';
-import { Sparkles, Usb, Zap, Keyboard, RotateCcw } from 'lucide-react';
-import { LedRingConfig, PowerManagementConfig, TriangularSpringFlexureConfig } from './types';
+import { ProfileManagerModal } from './components/ProfileManagerModal';
+import { ProfilesAndFlashTab } from './components/ProfilesAndFlashTab';
+import {
+  Sparkles,
+  Usb,
+  Zap,
+  Keyboard,
+  RotateCcw,
+  Bluetooth,
+  Flame,
+  CheckCircle,
+  AlertCircle,
+  X,
+  Layers,
+} from 'lucide-react';
+
+// Helper to ensure 9 buttons are always present and normalized
+const normalizeProfileButtons = (buttons?: ButtonMapping[]): ButtonMapping[] => {
+  const defaultPins = [13, 12, 14, 27, 26, 25, 33, 32, 4];
+  const list = buttons && Array.isArray(buttons) ? [...buttons] : [];
+  return Array.from({ length: 9 }, (_, i) => {
+    const existing = list.find((b) => b.gridPosition === i || b.id === `btn-${i + 1}`) || list[i];
+    if (existing) {
+      return {
+        ...existing,
+        id: existing.id || `btn-${i + 1}`,
+        gridPosition: i,
+        pinNumber: existing.pinNumber ?? defaultPins[i],
+      };
+    }
+    return {
+      id: `btn-${i + 1}`,
+      pinNumber: defaultPins[i] || 32 + i,
+      gridPosition: i,
+      label: i === 8 ? 'Next Profile' : `Key ${i + 1}`,
+      actionType: i === 8 ? 'profile_cycle_next' : 'cad_action',
+      keyCombo: i === 8 ? [] : ['F6'],
+      cadActionName: i === 8 ? 'Switch Profile' : `Action ${i + 1}`,
+      description: i === 8 ? 'Tap: Cycle Profile / Hold: Show Battery' : `Custom Macro Key ${i + 1}`,
+      holdActionType: i === 8 ? 'battery_indicator' : 'disabled',
+      color: '#06b6d4',
+    };
+  });
+};
 
 export default function App() {
   // Profiles State
   const [profiles, setProfiles] = useState<Profile[]>(() => {
-    const saved = localStorage.getItem('spacemouse_profiles');
+    const saved = localStorage.getItem('oofo_profiles') || localStorage.getItem('spacemouse_profiles');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Ensure backward compatibility by merging missing ledRing, powerManagement, and triangularFlexure
           return parsed.map((p: Profile) => ({
             ...p,
+            buttons: normalizeProfileButtons(p.buttons),
             ledRing: p.ledRing || createDefaultLedRing(p.ledColor || '#ff8800'),
             powerManagement: p.powerManagement || createDefaultPowerManagement(),
-            triangularFlexure: p.triangularFlexure || createDefaultTriangularFlexure(),
           }));
         }
       } catch (e) {
         console.error('Failed to parse saved profiles:', e);
       }
     }
-    return defaultProfiles;
+    return defaultProfiles.map((p) => ({
+      ...p,
+      buttons: normalizeProfileButtons(p.buttons),
+    }));
   });
 
-  const [activeProfileId, setActiveProfileId] = useState<string>(profiles[0]?.id || 'fusion360-default');
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [activeProfileId, setActiveProfileId] = useState<string>(() => {
+    const saved = localStorage.getItem('oofo_active_profile') || localStorage.getItem('spacemouse_active_profile');
+    return saved || profiles[0]?.id || 'fusion360-default';
+  });
 
-  // Serial & Telemetry State
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [isProfileManagerOpen, setIsProfileManagerOpen] = useState<boolean>(false);
+
+  // Hardware Connection State (Web Bluetooth / Web Serial)
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [connectionType, setConnectionType] = useState<ConnectionType>('none');
+  const [connectedDeviceName, setConnectedDeviceName] = useState<string>('');
   const [baudRate, setBaudRate] = useState<number>(115200);
   const [packetHz, setPacketHz] = useState<number>(0);
-  const [isSimulating, setIsSimulating] = useState<boolean>(true); // Active by default for immediate feedback
+  const [isSimulating, setIsSimulating] = useState<boolean>(true);
+  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'info' | 'error'; text: string } | null>(null);
+
   const [serialLogs, setSerialLogs] = useState<
     Array<{ text: string; type: 'rx' | 'tx' | 'info' | 'error'; timestamp: number }>
   >([]);
 
-  // 6-DOF Live State
+  // 6-DOF Live Telemetry State
   const [sixDofState, setSixDofState] = useState<SixDofState>({
     x: 0,
     y: 0,
@@ -76,7 +135,7 @@ export default function App() {
 
   // Calibration Data
   const [calibrationData, setCalibrationData] = useState<CalibrationData>(() => {
-    const saved = localStorage.getItem('spacemouse_calibration');
+    const saved = localStorage.getItem('oofo_calibration') || localStorage.getItem('spacemouse_calibration');
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -100,24 +159,41 @@ export default function App() {
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0];
 
-  // Save Profiles to LocalStorage on change
+  // Save Profiles to LocalStorage
   useEffect(() => {
-    localStorage.setItem('spacemouse_profiles', JSON.stringify(profiles));
-  }, [profiles]);
+    localStorage.setItem('oofo_profiles', JSON.stringify(profiles));
+    localStorage.setItem('oofo_active_profile', activeProfileId);
+  }, [profiles, activeProfileId]);
 
-  // Set up Serial Callbacks
+  // Save Calibration Data
   useEffect(() => {
-    serialManager.setCallbacks(
+    localStorage.setItem('oofo_calibration', JSON.stringify(calibrationData));
+  }, [calibrationData]);
+
+  // Set up Hardware Connection Callbacks
+  useEffect(() => {
+    hardwareConnection.setCallbacks(
       (data: SixDofState) => {
         setSixDofState(data);
         setIsConnected(true);
-        setPacketHz(serialManager.currentHz);
+        setPacketHz(hardwareConnection.currentHz);
       },
       (logText: string, type: 'rx' | 'tx' | 'info' | 'error') => {
         setSerialLogs((prev) => [
-          ...prev.slice(-300), // Keep last 300 logs
+          ...prev.slice(-300),
           { text: logText, type, timestamp: Date.now() },
         ]);
+      },
+      (connected: boolean, type: ConnectionType, name: string) => {
+        setIsConnected(connected);
+        setConnectionType(type);
+        setConnectedDeviceName(name);
+        if (connected) {
+          setIsSimulating(false);
+          showToast('success', `Connected to ${name} via ${type === 'bluetooth' ? 'Bluetooth BLE' : 'USB Serial'}!`);
+        } else {
+          showToast('info', 'Hardware disconnected.');
+        }
       }
     );
   }, []);
@@ -125,8 +201,8 @@ export default function App() {
   // Update Hz ticker
   useEffect(() => {
     const interval = setInterval(() => {
-      if (serialManager.isConnected) {
-        setPacketHz(serialManager.currentHz);
+      if (hardwareConnection.isConnected) {
+        setPacketHz(hardwareConnection.currentHz);
       } else {
         setPacketHz(0);
       }
@@ -134,25 +210,96 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Serial Connect / Disconnect handlers
-  const handleConnectSerial = async () => {
-    const ok = await serialManager.connect(baudRate);
+  const showToast = (type: 'success' | 'info' | 'error', text: string) => {
+    setToastMessage({ type, text });
+    setTimeout(() => {
+      setToastMessage((cur) => (cur?.text === text ? null : cur));
+    }, 4500);
+  };
+
+  // Connect Web Bluetooth
+  const handleConnectBluetooth = async () => {
+    const ok = await hardwareConnection.connectBluetooth();
     if (ok) {
       setIsConnected(true);
-      setIsSimulating(false); // Stop simulation when real hardware is active
+      setConnectionType('bluetooth');
+      setIsSimulating(false);
     }
   };
 
-  const handleDisconnectSerial = async () => {
-    await serialManager.disconnect();
+  // Connect Web Serial
+  const handleConnectSerial = async () => {
+    const ok = await hardwareConnection.connectSerial(baudRate);
+    if (ok) {
+      setIsConnected(true);
+      setConnectionType('serial');
+      setIsSimulating(false);
+    }
+  };
+
+  // Disconnect Hardware
+  const handleDisconnectHardware = async () => {
+    await hardwareConnection.disconnect();
     setIsConnected(false);
+    setConnectionType('none');
   };
 
+  // Send Command to ESP32 (BLE or Serial)
   const handleSendCommand = (cmd: string) => {
-    serialManager.sendCommand(cmd);
+    hardwareConnection.sendCommand(cmd);
   };
 
-  // Profile Modification Helpers
+  // Quick 1-Click Burn Active Profile to ESP32 Flash (NVS)
+  const handleQuickBurnNvs = async () => {
+    if (!hardwareConnection.isConnected) {
+      showToast('error', 'ESP32 not connected. Connect via Bluetooth or USB Serial first.');
+      return;
+    }
+    const slotIdx = profiles.findIndex((p) => p.id === activeProfile.id);
+    const targetSlot = slotIdx >= 0 ? slotIdx : 0;
+    showToast('info', `Burning "${activeProfile.name}" into ESP32 Flash Slot #${targetSlot + 1}...`);
+    const success = await hardwareConnection.burnProfileToNVS(activeProfile, targetSlot, Math.min(profiles.length, 16));
+    if (success) {
+      showToast('success', `Saved "${activeProfile.name}" to ESP32 Flash Slot #${targetSlot + 1}!`);
+    } else {
+      showToast('error', 'Failed to burn to ESP32 Flash memory.');
+    }
+  };
+
+  // Profile Management Handlers
+  const handleAddProfile = (newProfile: Profile) => {
+    setProfiles((prev) => [...prev, newProfile]);
+  };
+
+  const handleUpdateProfile = (updatedProfile: Profile) => {
+    setProfiles((prev) => prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p)));
+  };
+
+  const handleDeleteProfile = (profileId: string) => {
+    setProfiles((prev) => prev.filter((p) => p.id !== profileId));
+  };
+
+  const handleImportProfiles = (imported: Profile[]) => {
+    const formatted = imported.map((p) => ({
+      ...p,
+      buttons: normalizeProfileButtons(p.buttons),
+      ledRing: p.ledRing || createDefaultLedRing(p.ledColor || '#ff8800'),
+      powerManagement: p.powerManagement || createDefaultPowerManagement(),
+      decouplingMatrix: p.decouplingMatrix || [
+        [1, 0, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0, 0],
+        [0, 0, 1, 0, 0, 0],
+        [0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 0, 1],
+      ],
+    }));
+    setProfiles(formatted);
+    if (formatted[0]) setActiveProfileId(formatted[0].id);
+    showToast('success', `Imported ${formatted.length} profiles.`);
+  };
+
+  // Axis & Filter Modification Helpers
   const handleUpdateAxis = (axisKey: keyof SixDofAxesConfig, params: Partial<AxisParameters>) => {
     setProfiles((prev) =>
       prev.map((p) => {
@@ -184,9 +331,16 @@ export default function App() {
     setProfiles((prev) =>
       prev.map((p) => {
         if (p.id !== activeProfile.id) return p;
+        const normalized = normalizeProfileButtons(p.buttons);
+        const updatedButtons = normalized.map((b, idx) => {
+          if (b.id === buttonId || `btn-${idx + 1}` === buttonId || (buttonId === 'btn-9' && idx === 8) || (b.gridPosition === 8 && buttonId.includes('9'))) {
+            return { ...b, ...updated };
+          }
+          return b;
+        });
         return {
           ...p,
-          buttons: p.buttons.map((b) => (b.id === buttonId ? { ...b, ...updated } : b)),
+          buttons: updatedButtons,
         };
       })
     );
@@ -197,11 +351,11 @@ export default function App() {
     const newButton: ButtonMapping = {
       id: newId,
       pinNumber: 32 + (activeProfile.buttons.length % 8),
-      label: `Button ${activeProfile.buttons.length + 1}`,
+      label: `Key ${activeProfile.buttons.length + 1}`,
       actionType: 'cad_action',
       keyCombo: ['F6'],
       cadActionName: 'Custom Action',
-      description: 'Custom auxiliary trigger',
+      description: 'Custom shortcut trigger',
       color: '#38bdf8',
     };
     setProfiles((prev) =>
@@ -252,22 +406,10 @@ export default function App() {
     );
   };
 
-  const handleUpdateTriangularFlexure = (triangularFlexure: TriangularSpringFlexureConfig) => {
-    setProfiles((prev) =>
-      prev.map((p) => {
-        if (p.id !== activeProfile.id) return p;
-        return {
-          ...p,
-          triangularFlexure,
-        };
-      })
-    );
-  };
-
   // Tare / Zero Center
   const handleZeroTare = () => {
     if (isConnected) {
-      serialManager.sendCommand('CAL_ZERO');
+      hardwareConnection.sendCommand('CAL_ZERO');
     }
     setSixDofState((prev) => ({
       ...prev,
@@ -285,7 +427,6 @@ export default function App() {
     if (!isSimulating) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Avoid intercepting input while typing in text inputs
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
 
       const step = e.shiftKey ? 0.15 : 0.4;
@@ -320,7 +461,7 @@ export default function App() {
   }, [isSimulating]);
 
   return (
-    <div className="min-h-screen bg-[#050608] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-black">
+    <div className="min-h-screen bg-[#0a0d14] text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-black">
       {/* Navigation Top Header */}
       <NavigationHeader
         activeTab={activeTab}
@@ -329,20 +470,66 @@ export default function App() {
         activeProfile={activeProfile}
         onSelectProfile={setActiveProfileId}
         isConnected={isConnected}
+        connectionType={connectionType}
+        deviceName={connectedDeviceName}
+        onConnectBluetooth={handleConnectBluetooth}
         onConnectSerial={handleConnectSerial}
-        onDisconnectSerial={handleDisconnectSerial}
+        onDisconnect={handleDisconnectHardware}
         baudRate={baudRate}
         onSelectBaudRate={setBaudRate}
         packetHz={packetHz}
         isSimulating={isSimulating}
         onToggleSimulation={() => setIsSimulating(!isSimulating)}
+        onOpenProfileManager={() => setActiveTab('profiles')}
+        onQuickBurnNvs={handleQuickBurnNvs}
+      />
+
+      {/* Floating Status Toast */}
+      {toastMessage && (
+        <div
+          className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-2xl border text-xs shadow-2xl flex items-center gap-3 animate-slideUp ${
+            toastMessage.type === 'success'
+              ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
+              : toastMessage.type === 'error'
+              ? 'bg-rose-950/95 border-rose-500/50 text-rose-200'
+              : 'bg-cyan-950/95 border-cyan-500/50 text-cyan-200'
+          }`}
+        >
+          {toastMessage.type === 'success' ? (
+            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : toastMessage.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : (
+            <Flame className="w-4 h-4 text-cyan-400 shrink-0" />
+          )}
+          <span>{toastMessage.text}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="text-slate-400 hover:text-white p-1 ml-1"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Profile Management Modal */}
+      <ProfileManagerModal
+        isOpen={isProfileManagerOpen}
+        onClose={() => setIsProfileManagerOpen(false)}
+        profiles={profiles}
+        activeProfileId={activeProfileId}
+        onSelectProfile={setActiveProfileId}
+        onAddProfile={handleAddProfile}
+        onUpdateProfile={handleUpdateProfile}
+        onDeleteProfile={handleDeleteProfile}
+        onImportProfiles={handleImportProfiles}
       />
 
       {/* Main Content Area */}
-      <main className="max-w-7xl w-full mx-auto px-4 py-5 flex-1 flex flex-col space-y-5">
-        {/* TAB 1: Live Dashboard & 3D Visualizer */}
+      <main className="max-w-7xl w-full mx-auto px-4 py-6 flex-1 flex flex-col space-y-6">
+        {/* TAB 1: 3D Studio Dashboard */}
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
             {/* Left 3D Viewport Column */}
             <div className="lg:col-span-7 flex flex-col space-y-3">
               <div className="flex-1 min-h-[420px]">
@@ -355,7 +542,7 @@ export default function App() {
 
               {/* Keyboard Simulator Quick Helper */}
               {isSimulating && (
-                <div className="p-3 bg-[#0a0d12]/90 rounded-xl border border-[#1e2632] text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2">
+                <div className="p-3.5 bg-[#141822] rounded-2xl border border-[#232b3c] text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Keyboard className="w-4 h-4 text-cyan-400" />
                     <span className="font-semibold text-slate-200">Simulation Controls:</span>
@@ -365,7 +552,7 @@ export default function App() {
                     <span className="font-mono text-cyan-300">Arrows</span> (Tilt/Twist),{' '}
                     <span className="font-mono text-cyan-300">Space</span> (Tare)
                   </div>
-                  <span className="text-[10px] text-slate-500 font-mono">Shift for fine precision</span>
+                  <span className="text-[10px] text-slate-500">Hold Shift for micro precision</span>
                 </div>
               )}
             </div>
@@ -387,17 +574,32 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: Hardware Manual & Wiring */}
-        {activeTab === 'manual' && (
-          <HardwareManualTab
+        {/* TAB 2: Key & Axis Mapping */}
+        {activeTab === 'buttons' && (
+          <ButtonMapperTab
             profile={activeProfile}
-            onApplyHardwarePreset={() => {
-              setActiveProfileId('fusion360-default');
-            }}
+            buttonsPressed={sixDofState.buttonsPressed}
+            sixDofState={sixDofState}
+            onUpdateButton={handleUpdateButton}
+            onUpdateAxis={handleUpdateAxis}
+            onAddButton={handleAddButton}
+            onDeleteButton={handleDeleteButton}
           />
         )}
 
-        {/* TAB 2.5: 24-LED Ring Studio Customizer */}
+        {/* TAB 3: Axis Tuning */}
+        {activeTab === 'tuning' && (
+          <AxisTuningTab
+            axes={activeProfile.axes}
+            filters={activeProfile.filters}
+            onUpdateAxis={handleUpdateAxis}
+            onUpdateFilters={handleUpdateFilters}
+            onSyncToEsp32={handleQuickBurnNvs}
+            isConnected={isConnected}
+          />
+        )}
+
+        {/* TAB 4: Lighting & Ring */}
         {activeTab === 'led_ring' && (
           <LedRingCustomizerTab
             config={activeProfile.ledRing || createDefaultLedRing(activeProfile.ledColor || '#ff8800')}
@@ -406,63 +608,47 @@ export default function App() {
           />
         )}
 
-        {/* TAB 2.6: Battery & Power Efficiency Optimizer */}
+        {/* TAB 5: Battery & Sleep */}
         {activeTab === 'power' && (
           <PowerBatteryManagerTab
             config={activeProfile.powerManagement || createDefaultPowerManagement()}
             onChangeConfig={handleUpdatePowerManagement}
             ledBrightness={activeProfile.ledRing?.brightness || 65}
+            ledRing={activeProfile.ledRing}
           />
         )}
 
-        {/* TAB 3: Axis Tuning & Curves */}
-        {activeTab === 'tuning' && (
-          <AxisTuningTab
-            axes={activeProfile.axes}
-            filters={activeProfile.filters}
-            triangularFlexure={activeProfile.triangularFlexure || createDefaultTriangularFlexure()}
-            onUpdateAxis={handleUpdateAxis}
-            onUpdateFilters={handleUpdateFilters}
-            onUpdateTriangularFlexure={handleUpdateTriangularFlexure}
-            onSyncToEsp32={() => {
-              if (isConnected) {
-                serialManager.sendCommand(`SET_ALPHA:${activeProfile.filters.smoothingAlpha}`);
-                serialManager.sendCommand('SAVE_EEPROM');
-              }
-            }}
+        {/* TAB 6: Profiles & Flash */}
+        {activeTab === 'profiles' && (
+          <ProfilesAndFlashTab
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            onSelectProfile={setActiveProfileId}
+            onAddProfile={handleAddProfile}
+            onUpdateProfile={handleUpdateProfile}
+            onDeleteProfile={handleDeleteProfile}
+            onImportProfiles={handleImportProfiles}
             isConnected={isConnected}
+            onQuickBurnNvs={handleQuickBurnNvs}
+            onNavigateToFirmware={() => setActiveTab('firmware')}
           />
         )}
 
-        {/* TAB 4: Button & Macro Mapper */}
-        {activeTab === 'buttons' && (
-          <ButtonMapperTab
-            profile={activeProfile}
-            buttonsPressed={sixDofState.buttonsPressed}
-            onUpdateButton={handleUpdateButton}
-            onAddButton={handleAddButton}
-            onDeleteButton={handleDeleteButton}
-          />
-        )}
+        {/* SUB-TABS: Firmware, Calibration, Serial, Manual, Guide, AI */}
+        {activeTab === 'firmware' && <FirmwareGeneratorTab profile={activeProfile} allProfiles={profiles} />}
 
-        {/* TAB 4: Sensor Calibration Wizard */}
         {activeTab === 'calibration' && (
           <CalibrationWizardTab
             state={sixDofState}
             calibration={calibrationData}
             onSaveCalibration={(cal) => {
               setCalibrationData(cal);
-              localStorage.setItem('spacemouse_calibration', JSON.stringify(cal));
             }}
             onSendSerialCommand={handleSendCommand}
             isConnected={isConnected}
           />
         )}
 
-        {/* TAB 5: ESP32 Firmware Generator */}
-        {activeTab === 'firmware' && <FirmwareGeneratorTab profile={activeProfile} />}
-
-        {/* TAB 6: Serial Monitor */}
         {activeTab === 'serial' && (
           <SerialMonitorTab
             logs={serialLogs}
@@ -473,29 +659,18 @@ export default function App() {
           />
         )}
 
-        {/* TAB 7: CAD & Fusion 360 Guide */}
-        {activeTab === 'guide' && <CadIntegrationGuideTab />}
+        {activeTab === 'manual' && (
+          <HardwareManualTab
+            profile={activeProfile}
+            onApplyHardwarePreset={() => {
+              setActiveProfileId('fusion360-default');
+            }}
+          />
+        )}
 
-        {/* TAB 8: AI Advisor */}
+        {activeTab === 'guide' && <CadIntegrationGuideTab />}
         {activeTab === 'ai' && <AiAssistantTab profile={activeProfile} />}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-[#1e2632] bg-[#090b0e] py-3 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 font-mono text-[11px]">
-            <span className="w-2 h-2 rounded-full bg-cyan-500/80 animate-pulse" />
-            <span className="text-slate-300">DIY SpaceMouse Studio</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-slate-400">ESP32 6-DOF Open Architecture</span>
-          </div>
-          <div className="flex items-center gap-3 font-mono text-[10px] text-slate-400">
-            <span>Autodesk Fusion 360 • Blender • SolidWorks • FreeCAD</span>
-            <span className="w-1 h-1 rounded-full bg-[#1e2632]" />
-            <span className="text-cyan-400/80">TinyUSB 1000Hz HID</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

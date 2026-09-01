@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SixDofAxesConfig, GlobalFilterConfig, AxisParameters, CurveType, TriangularSpringFlexureConfig } from '../types';
+import { SixDofAxesConfig, GlobalFilterConfig, AxisParameters, CurveType, AxisOutputMode } from '../types';
 import {
   Sliders,
   Activity,
@@ -14,17 +14,23 @@ import {
   Move,
   RotateCw,
   Cpu,
-  Info,
-  ShieldCheck,
+  Flame,
+  Volume2,
+  VolumeX,
+  Volume1,
+  SkipForward,
+  SkipBack,
+  Keyboard,
+  Settings2,
+  Gauge,
+  Check,
 } from 'lucide-react';
 
 interface AxisTuningTabProps {
   axes: SixDofAxesConfig;
   filters: GlobalFilterConfig;
-  triangularFlexure?: TriangularSpringFlexureConfig;
   onUpdateAxis: (axisKey: keyof SixDofAxesConfig, params: Partial<AxisParameters>) => void;
   onUpdateFilters: (filters: Partial<GlobalFilterConfig>) => void;
-  onUpdateTriangularFlexure?: (config: TriangularSpringFlexureConfig) => void;
   onSyncToEsp32: () => void;
   isConnected: boolean;
 }
@@ -32,33 +38,27 @@ interface AxisTuningTabProps {
 export const AxisTuningTab: React.FC<AxisTuningTabProps> = ({
   axes,
   filters,
-  triangularFlexure,
   onUpdateAxis,
   onUpdateFilters,
-  onUpdateTriangularFlexure,
   onSyncToEsp32,
   isConnected,
 }) => {
   const [selectedAxis, setSelectedAxis] = useState<keyof SixDofAxesConfig>('x');
+  const [tuningMode, setTuningMode] = useState<'kinematics' | 'remapping'>('kinematics');
   const [syncedRecently, setSyncedRecently] = useState(false);
   const [appliedPresetMsg, setAppliedPresetMsg] = useState<string | null>(null);
 
-  const flexureConfig: TriangularSpringFlexureConfig = triangularFlexure || {
-    flexureGeometry: 'triangular_6_spring_parallel',
-    springRateStiffness: 1.15,
-    radialSymmetryDeg: 120,
-    shearTiltDecoupling: 0.88,
-    axialZPreloadComp: 0.92,
-    torsionYawDamping: 0.90,
+  const currentAxis = axes[selectedAxis] || {
+    deadzone: 8,
+    sensitivity: 1.2,
+    inverted: false,
+    curve: 'quadratic' as CurveType,
+    expoPower: 2.0,
+    minRaw: 800,
+    maxRaw: 3200,
+    centerRaw: 2048,
+    outputMode: 'cad_6dof' as AxisOutputMode,
   };
-
-  const handleUpdateFlexure = (updated: Partial<TriangularSpringFlexureConfig>) => {
-    if (onUpdateTriangularFlexure) {
-      onUpdateTriangularFlexure({ ...flexureConfig, ...updated });
-    }
-  };
-
-  const currentAxis = axes[selectedAxis];
 
   const axisNames: Record<keyof SixDofAxesConfig, { label: string; desc: string; type: 'trans' | 'rot' }> = {
     x: { label: 'X - Pan Left / Right', desc: 'Lateral horizontal camera tracking (Shear translation)', type: 'trans' },
@@ -75,9 +75,7 @@ export const AxisTuningTab: React.FC<AxisTuningTabProps> = ({
     setTimeout(() => setSyncedRecently(false), 2500);
   };
 
-  // Apply Triangular 6-Spring Stewart / Delta parallel flexure optimized preset
-  const handleApplyTriangularPreset = () => {
-    // 1. Optimized deadzones and curves for 3 paired compression/tension spring geometry
+  const handleApplyOptimalPreset = () => {
     onUpdateAxis('x', { deadzone: 8, sensitivity: 1.25, curve: 'quadratic', expoPower: 2.0 });
     onUpdateAxis('y', { deadzone: 8, sensitivity: 1.25, curve: 'quadratic', expoPower: 2.0 });
     onUpdateAxis('z', { deadzone: 10, sensitivity: 1.6, curve: 'quadratic', expoPower: 2.2 });
@@ -85,7 +83,6 @@ export const AxisTuningTab: React.FC<AxisTuningTabProps> = ({
     onUpdateAxis('ry', { deadzone: 8, sensitivity: 1.05, curve: 's_curve', expoPower: 1.8 });
     onUpdateAxis('rz', { deadzone: 9, sensitivity: 1.15, curve: 's_curve', expoPower: 1.8 });
 
-    // 2. Global kinematics filtering optimized for MPU6050 inside spring knob
     onUpdateFilters({
       smoothingAlpha: 0.35,
       jitterThreshold: 3,
@@ -93,24 +90,17 @@ export const AxisTuningTab: React.FC<AxisTuningTabProps> = ({
       precisionMultiplier: 0.28,
     });
 
-    handleUpdateFlexure({
-      springRateStiffness: 1.2,
-      shearTiltDecoupling: 0.90,
-      axialZPreloadComp: 0.94,
-      torsionYawDamping: 0.91,
-    });
-
-    setAppliedPresetMsg('Applied Triangular Parallel 6-Spring Flexure Kinematics Preset!');
-    setTimeout(() => setAppliedPresetMsg(null), 4000);
+    setAppliedPresetMsg('Kinematics Curves and Deadzones Optimized!');
+    setTimeout(() => setAppliedPresetMsg(null), 3000);
   };
 
-  // Generate SVG curve points based on deadzone and expo power
+  // Generate SVG curve points
   const generateCurvePath = (dz: number, curve: CurveType, expo: number) => {
     const points: string[] = [];
     const deadzoneNorm = dz / 100;
 
     for (let i = 0; i <= 50; i++) {
-      const input = i / 50; // 0.0 to 1.0
+      const input = i / 50;
       let output = 0;
 
       if (input > deadzoneNorm) {
@@ -126,7 +116,6 @@ export const AxisTuningTab: React.FC<AxisTuningTabProps> = ({
         }
       }
 
-      // Map to SVG coordinates: 0..200 width, 100..0 height
       const svgX = input * 200;
       const svgY = 100 - output * 100;
       points.push(`${svgX.toFixed(1)},${svgY.toFixed(1)}`);
@@ -135,407 +124,424 @@ export const AxisTuningTab: React.FC<AxisTuningTabProps> = ({
     return `M ${points.join(' L ')}`;
   };
 
+  const AXIS_OUTPUT_MODES: Array<{ id: AxisOutputMode; label: string; desc: string; icon: any }> = [
+    { id: 'cad_6dof', label: '3D 6-DOF CAD Navigation', desc: 'Standard 3D SpaceMouse Pan, Zoom, Orbit & Tilt', icon: Compass },
+    { id: 'media_volume', label: 'Audio Volume Control', desc: '+Deflection: Volume Up / -Deflection: Volume Down', icon: Volume2 },
+    { id: 'media_track', label: 'Media Track Skipping', desc: '+Deflection: Next Track / -Deflection: Prev Track', icon: SkipForward },
+    { id: 'mouse_scroll', label: 'Mouse Scroll Wheel', desc: '+Deflection: Scroll Up / -Deflection: Scroll Down', icon: ArrowUpDown },
+    { id: 'keystroke_repeat', label: 'Deflection Keystroke Repeater', desc: 'Continuous hotkey pulses (e.g. Zoom Ctrl+/Ctrl-, Left/Right scrub)', icon: Keyboard },
+    { id: 'custom_hotkey_bidirectional', label: 'Bidirectional Custom Hotkeys', desc: 'Positive = Combo A, Negative = Combo B', icon: Sparkles },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Top Header & Sync Action */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-[#0a0d12] rounded-xl border border-[#1e2632]">
+      {/* Top Banner Card */}
+      <div className="p-5 rounded-2xl bg-[#141822] border border-[#232b3c] flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-bold text-slate-100 flex items-center gap-2 font-mono">
+          <div className="flex items-center gap-2">
             <Sliders className="w-5 h-5 text-cyan-400" />
-            <span>6-DOF AXIS DYNAMICS & KINEMATICS ENGINE</span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5 font-mono">
-            Fine-tune deadzones, exponential transfer functions, gain multipliers, and triangular parallel spring kinematics.
+            <h2 className="text-base font-bold text-white tracking-tight">
+              6-DOF Kinematics & Universal Joystick Mapping
+            </h2>
+          </div>
+          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+            Configure response curves, deadzones, and freely remap any 6-DOF axis to volume twist, track skipping, scrolling, or custom hotkeys.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* Sub-mode toggle: Kinematics vs Remapping */}
+          <div className="flex items-center p-1 rounded-xl bg-[#0c0e14] border border-[#232b3c] gap-1">
+            <button
+              onClick={() => setTuningMode('kinematics')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                tuningMode === 'kinematics'
+                  ? 'bg-cyan-500 text-black font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Gauge className="w-3.5 h-3.5" />
+              <span>Response Curves</span>
+            </button>
+            <button
+              onClick={() => setTuningMode('remapping')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                tuningMode === 'remapping'
+                  ? 'bg-purple-500 text-white font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <span>Axis Output Remap</span>
+            </button>
+          </div>
+
           <button
-            onClick={handleApplyTriangularPreset}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold font-mono bg-purple-950/80 border border-purple-500/50 hover:bg-purple-900 text-purple-200 transition"
+            onClick={handleApplyOptimalPreset}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-xs font-semibold transition"
           >
-            <Sparkles className="w-4 h-4 text-purple-400" />
-            <span>APPLY 6-SPRING FLEXURE PRESET</span>
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Optimal Curves</span>
           </button>
 
           <button
-            id="btn-sync-axes-esp32"
             onClick={handleSyncClick}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold font-mono shadow-lg transition-all active:scale-95 ${
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm ${
               syncedRecently
-                ? 'bg-emerald-600 text-black glow-emerald-sm'
-                : isConnected
-                ? 'bg-cyan-600 hover:bg-cyan-500 text-black glow-cyan-sm'
-                : 'bg-[#050608] border border-[#1e2632] text-slate-300 hover:text-white hover:border-slate-700'
+                ? 'bg-emerald-500 text-black'
+                : !isConnected
+                ? 'bg-[#0c0e14] text-slate-500 border border-[#232b3c]'
+                : 'bg-cyan-500 hover:bg-cyan-400 text-black'
             }`}
           >
-            {syncedRecently ? (
-              <>
-                <CheckCircle className="w-4 h-4 text-black" />
-                <span>SYNCED TO ESP32 FLASH</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                <span>{isConnected ? 'SYNC TO ESP32 EEPROM' : 'SAVE LOCALLY'}</span>
-              </>
-            )}
+            {syncedRecently ? <CheckCircle className="w-3.5 h-3.5" /> : <Flame className="w-3.5 h-3.5" />}
+            <span>{syncedRecently ? 'Burned to Flash!' : 'Burn to NVS'}</span>
           </button>
         </div>
       </div>
 
       {appliedPresetMsg && (
-        <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-500/60 text-xs font-mono text-emerald-300 flex items-center gap-2 animate-fadeIn">
-          <CheckCircle className="w-4 h-4 text-emerald-400" />
+        <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/50 text-xs font-semibold text-purple-300 flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-purple-400" />
           <span>{appliedPresetMsg}</span>
         </div>
       )}
 
-      {/* FEATURE SECTION: Triangular Parallel Spring Flexure (Stewart / Delta 6-Spring Geometry) */}
-      <div className="p-5 rounded-2xl bg-[#090d14] border border-cyan-500/30 shadow-xl space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-[#1e2632]">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-cyan-950 border border-cyan-500/40 text-cyan-300">
-              <Layers className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-white uppercase font-mono tracking-wider">
-                  Triangular Parallel Spring Flexure Model
-                </h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-500/40 font-bold">
-                  Stewart/Delta 6-Spring Paired Architecture
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                3-post equilateral geometry with paired compression/tension springs balances forces across all 6 degrees of freedom.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-            <span>Radial 120° Symmetry Compliant Matrix</span>
-          </div>
-        </div>
-
-        {/* Flexure Kinematic Parameters Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Parameter 1: Shear vs Tilt Decoupling */}
-          <div className="p-3.5 rounded-xl bg-[#050608] border border-[#1e2632] space-y-2">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-slate-300 flex items-center gap-1.5">
-                <Move className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Lateral Shear / Tilt Decoupling</span>
-              </span>
-              <span className="text-cyan-400 font-bold">{(flexureConfig.shearTiltDecoupling * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0.50"
-              max="1.00"
-              step="0.02"
-              value={flexureConfig.shearTiltDecoupling}
-              onChange={(e) => handleUpdateFlexure({ shearTiltDecoupling: parseFloat(e.target.value) })}
-              className="w-full h-1.5 bg-[#151d2a] rounded-lg appearance-none cursor-pointer accent-cyan-400"
-            />
-            <span className="text-[10px] font-mono text-slate-500 block">
-              Isolates lateral pan (X/Y) from angular tilt (Rx/Ry) caused by spring moment arms
-            </span>
-          </div>
-
-          {/* Parameter 2: Axial Z Preload Balance */}
-          <div className="p-3.5 rounded-xl bg-[#050608] border border-[#1e2632] space-y-2">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-slate-300 flex items-center gap-1.5">
-                <ArrowUpDown className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Axial Z Compression/Tension Preload</span>
-              </span>
-              <span className="text-emerald-400 font-bold">{(flexureConfig.axialZPreloadComp * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0.50"
-              max="1.00"
-              step="0.02"
-              value={flexureConfig.axialZPreloadComp}
-              onChange={(e) => handleUpdateFlexure({ axialZPreloadComp: parseFloat(e.target.value) })}
-              className="w-full h-1.5 bg-[#151d2a] rounded-lg appearance-none cursor-pointer accent-emerald-400"
-            />
-            <span className="text-[10px] font-mono text-slate-500 block">
-              Balances vertical push/pull stiffness against puck weight & gravity
-            </span>
-          </div>
-
-          {/* Parameter 3: Yaw Torsion Spring Damping */}
-          <div className="p-3.5 rounded-xl bg-[#050608] border border-[#1e2632] space-y-2">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-slate-300 flex items-center gap-1.5">
-                <RotateCw className="w-3.5 h-3.5 text-purple-400" />
-                <span>Yaw Torsion Spring Decay</span>
-              </span>
-              <span className="text-purple-400 font-bold">{(flexureConfig.torsionYawDamping * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
-              min="0.70"
-              max="0.99"
-              step="0.01"
-              value={flexureConfig.torsionYawDamping}
-              onChange={(e) => handleUpdateFlexure({ torsionYawDamping: parseFloat(e.target.value) })}
-              className="w-full h-1.5 bg-[#151d2a] rounded-lg appearance-none cursor-pointer accent-purple-400"
-            />
-            <span className="text-[10px] font-mono text-slate-500 block">
-              Leaky spring center return to eliminate angular drift when releasing twist
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Axis Selector Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-        {(Object.keys(axisNames) as Array<keyof SixDofAxesConfig>).map((key) => {
-          const info = axisNames[key];
+      {/* Axis Selector Bar (X, Y, Z, Rx, Ry, Rz) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        {(['x', 'y', 'z', 'rx', 'ry', 'rz'] as Array<keyof SixDofAxesConfig>).map((key) => {
+          const ax = axes[key] || { outputMode: 'cad_6dof', sensitivity: 1.0, deadzone: 8 };
           const isSelected = selectedAxis === key;
+          const info = axisNames[key];
           return (
             <button
               key={key}
-              id={`tab-axis-${key}`}
               onClick={() => setSelectedAxis(key)}
-              className={`p-3 rounded-xl border text-left transition-all ${
+              className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
                 isSelected
-                  ? 'bg-cyan-950/70 border-cyan-500 text-white glow-cyan-sm'
-                  : 'bg-[#0a0d12] border-[#1e2632] text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                  ? 'bg-[#1a202c] border-cyan-500 shadow-md shadow-cyan-500/10 scale-[1.02]'
+                  : 'bg-[#141822] border-[#232b3c] hover:border-slate-600 hover:bg-[#181d2a]'
               }`}
             >
-              <div className="text-xs font-extrabold uppercase font-mono text-cyan-400">{key}</div>
-              <div className="text-xs font-semibold truncate text-slate-200">{info.label.split(' - ')[1]}</div>
-              <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                <span>{axes[key].sensitivity.toFixed(1)}x</span>
-                {axes[key].inverted && <span className="text-amber-400 font-bold">INV</span>}
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-black uppercase font-mono ${isSelected ? 'text-cyan-400' : 'text-white'}`}>
+                  Axis {key.toUpperCase()}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#0c0e14] border border-[#232b3c] text-slate-400 font-mono">
+                  {ax.outputMode === 'cad_6dof' ? `${ax.sensitivity}x` : ax.outputMode?.replace('_', ' ')}
+                </span>
               </div>
+              <span className="text-[11px] text-slate-400 font-semibold block mt-1 truncate">
+                {info.label.split('-')[1]?.trim() || info.label}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {/* Main Selected Axis Editor Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left: Interactive Parameters */}
-        <div className="lg:col-span-7 space-y-4 bg-[#0a0d12] p-5 rounded-xl border border-[#1e2632] shadow-xl">
-          <div className="flex items-center justify-between pb-3 border-b border-[#1e2632]">
-            <div>
-              <h3 className="text-sm font-bold text-slate-100 font-mono">{axisNames[selectedAxis].label}</h3>
-              <p className="text-xs text-slate-400 font-mono">{axisNames[selectedAxis].desc}</p>
+      {/* Main Mode View */}
+      {tuningMode === 'kinematics' ? (
+        /* KINEMATICS & RESPONSE CURVE VIEW */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left: Interactive Curve Visualizer (5 Cols) */}
+          <div className="lg:col-span-5 space-y-4">
+            <div className="p-6 rounded-2xl bg-[#141822] border border-[#232b3c] space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-white block">Response Curve Profile</span>
+                  <span className="text-[11px] text-slate-400 font-mono">Deflection Input vs Output Velocity</span>
+                </div>
+                <span className="text-xs font-mono font-bold text-cyan-400 uppercase">
+                  {currentAxis.curve} (expo {currentAxis.expoPower?.toFixed(1) || '2.0'})
+                </span>
+              </div>
+
+              {/* SVG Response Curve Canvas */}
+              <div className="relative w-full aspect-[2/1] bg-[#0c0e14] rounded-xl border border-[#232b3c] p-3 flex items-center justify-center overflow-hidden">
+                {/* Deadzone visual zone */}
+                <div
+                  className="absolute left-3 top-3 bottom-3 bg-rose-500/10 border-r border-rose-500/40 transition-all pointer-events-none"
+                  style={{ width: `${(currentAxis.deadzone / 100) * 85}%` }}
+                >
+                  <span className="absolute bottom-1 left-1 text-[9px] text-rose-400 font-mono font-bold">
+                    DZ: {currentAxis.deadzone}%
+                  </span>
+                </div>
+
+                <svg className="w-full h-full overflow-visible" viewBox="0 0 200 100">
+                  {/* Grid Lines */}
+                  <line x1="0" y1="25" x2="200" y2="25" stroke="#1c2333" strokeDasharray="3 3" />
+                  <line x1="0" y1="50" x2="200" y2="50" stroke="#1c2333" strokeDasharray="3 3" />
+                  <line x1="0" y1="75" x2="200" y2="75" stroke="#1c2333" strokeDasharray="3 3" />
+                  <line x1="50" y1="0" x2="50" y2="100" stroke="#1c2333" strokeDasharray="3 3" />
+                  <line x1="100" y1="0" x2="100" y2="100" stroke="#1c2333" strokeDasharray="3 3" />
+                  <line x1="150" y1="0" x2="150" y2="100" stroke="#1c2333" strokeDasharray="3 3" />
+
+                  {/* Dynamic Curve */}
+                  <path
+                    d={generateCurvePath(currentAxis.deadzone, currentAxis.curve, currentAxis.expoPower || 2.0)}
+                    fill="none"
+                    stroke="#00e5ff"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+
+              {/* Curve Selection Chips */}
+              <div className="grid grid-cols-4 gap-1.5">
+                {(['linear', 'quadratic', 'exponential', 's_curve'] as CurveType[]).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => onUpdateAxis(selectedAxis, { curve: c })}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-semibold capitalize transition ${
+                      currentAxis.curve === c
+                        ? 'bg-cyan-500 text-black font-bold shadow-sm'
+                        : 'bg-[#0c0e14] text-slate-400 hover:text-white border border-[#232b3c]'
+                    }`}
+                  >
+                    {c.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
             </div>
-            {/* Invert Switch */}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={currentAxis.inverted}
-                onChange={(e) => onUpdateAxis(selectedAxis, { inverted: e.target.checked })}
-                className="w-4 h-4 rounded bg-[#050608] border-[#1e2632] text-cyan-500 focus:ring-0"
-              />
-              <span className="text-xs font-bold text-amber-300 font-mono">INVERT AXIS</span>
-            </label>
           </div>
 
-          {/* Deadzone Slider */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-300 font-mono">Center Deadzone (Noise Floor)</span>
-              <span className="font-mono text-cyan-400 font-bold">{currentAxis.deadzone}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="35"
-              step="1"
-              value={currentAxis.deadzone}
-              onChange={(e) => onUpdateAxis(selectedAxis, { deadzone: parseInt(e.target.value, 10) })}
-              className="w-full h-2 bg-[#050608] rounded-lg appearance-none cursor-pointer accent-cyan-400"
-            />
-            <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>0% (Ultra-sensitive)</span>
-              <span>8% (Recommended for 6-Spring)</span>
-              <span>35% (Stiff)</span>
-            </div>
-          </div>
-
-          {/* Sensitivity Multiplier */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-300 font-mono">Gain / Sensitivity Multiplier</span>
-              <span className="font-mono text-cyan-400 font-bold">{currentAxis.sensitivity.toFixed(2)}x</span>
-            </div>
-            <input
-              type="range"
-              min="0.2"
-              max="3.5"
-              step="0.05"
-              value={currentAxis.sensitivity}
-              onChange={(e) => onUpdateAxis(selectedAxis, { sensitivity: parseFloat(e.target.value) })}
-              className="w-full h-2 bg-[#050608] rounded-lg appearance-none cursor-pointer accent-cyan-400"
-            />
-            <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>0.2x (Micro precision)</span>
-              <span>1.2x (Standard CAD)</span>
-              <span>3.5x (Fast navigation)</span>
-            </div>
-          </div>
-
-          {/* Curve Type Selector */}
-          <div className="space-y-1.5 pt-2">
-            <span className="text-xs font-semibold text-slate-300 font-mono">Response Profile Curve</span>
-            <div className="grid grid-cols-4 gap-2 pt-1 font-mono">
-              {(['linear', 'exponential', 'quadratic', 's_curve'] as CurveType[]).map((cType) => (
+          {/* Right: Fine-Tuning Sliders & Low Pass Filter (7 Cols) */}
+          <div className="lg:col-span-7 space-y-4">
+            <div className="p-6 rounded-2xl bg-[#141822] border border-[#232b3c] space-y-5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                  Parameters for {axisNames[selectedAxis].label}
+                </span>
                 <button
-                  key={cType}
-                  onClick={() => onUpdateAxis(selectedAxis, { curve: cType })}
-                  className={`py-2 px-2 rounded-lg text-xs font-semibold border text-center transition-all ${
-                    currentAxis.curve === cType
-                      ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 glow-cyan-sm'
-                      : 'bg-[#050608] border-[#1e2632] text-slate-400 hover:text-white hover:border-slate-700'
+                  onClick={() => onUpdateAxis(selectedAxis, { inverted: !currentAxis.inverted })}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                    currentAxis.inverted
+                      ? 'bg-amber-500 text-black shadow-sm'
+                      : 'bg-[#0c0e14] border border-[#232b3c] text-slate-400 hover:text-white'
                   }`}
                 >
-                  {cType === 'linear' && 'Linear'}
-                  {cType === 'exponential' && 'Exponential'}
-                  {cType === 'quadratic' && 'Quadratic'}
-                  {cType === 's_curve' && 'Sigmoid S'}
+                  <RotateCcw className="w-3 h-3" />
+                  <span>{currentAxis.inverted ? 'Inverted (Reverse)' : 'Normal Direction'}</span>
                 </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Expo Power if Exponential */}
-          {currentAxis.curve === 'exponential' && (
-            <div className="space-y-1.5 pt-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-300 font-mono">Expo Power (Curvature Factor)</span>
-                <span className="font-mono text-cyan-400 font-bold">{currentAxis.expoPower.toFixed(1)}</span>
               </div>
-              <input
-                type="range"
-                min="1.1"
-                max="3.5"
-                step="0.1"
-                value={currentAxis.expoPower}
-                onChange={(e) => onUpdateAxis(selectedAxis, { expoPower: parseFloat(e.target.value) })}
-                className="w-full h-2 bg-[#050608] rounded-lg appearance-none cursor-pointer accent-cyan-400"
-              />
-            </div>
-          )}
-        </div>
 
-        {/* Right: SVG Response Curve Preview */}
-        <div className="lg:col-span-5 flex flex-col justify-between bg-[#06080c] p-5 rounded-xl border border-[#1e2632] shadow-xl">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5 font-mono">
-                <Activity className="w-4 h-4 text-emerald-400" />
-                <span>TRANSFER FUNCTION</span>
-              </span>
-              <span className="text-[10px] text-slate-500 font-mono">Spring Force → Output</span>
-            </div>
-
-            {/* SVG Graph Viewport */}
-            <div className="relative w-full h-44 bg-[#0a0d12] rounded-lg border border-[#1e2632] p-2 overflow-hidden">
-              {/* Deadzone visual zone */}
-              <div
-                className="absolute top-0 bottom-0 left-2 bg-red-950/30 border-r border-red-500/40 pointer-events-none"
-                style={{ width: `${(currentAxis.deadzone / 100) * 100}%` }}
-              />
-
-              <svg viewBox="0 0 200 100" className="w-full h-full overflow-visible">
-                {/* Grid Lines */}
-                <line x1="0" y1="25" x2="200" y2="25" stroke="#1e2632" strokeDasharray="2,2" strokeWidth="0.8" />
-                <line x1="0" y1="50" x2="200" y2="50" stroke="#1e2632" strokeDasharray="2,2" strokeWidth="0.8" />
-                <line x1="0" y1="75" x2="200" y2="75" stroke="#1e2632" strokeDasharray="2,2" strokeWidth="0.8" />
-                <line x1="50" y1="0" x2="50" y2="100" stroke="#1e2632" strokeDasharray="2,2" strokeWidth="0.8" />
-                <line x1="100" y1="0" x2="100" y2="100" stroke="#1e2632" strokeDasharray="2,2" strokeWidth="0.8" />
-                <line x1="150" y1="0" x2="150" y2="100" stroke="#1e2632" strokeDasharray="2,2" strokeWidth="0.8" />
-
-                {/* Linear Reference Ghost Line */}
-                <line x1="0" y1="100" x2="200" y2="0" stroke="#334155" strokeDasharray="3,3" strokeWidth="1" />
-
-                {/* Active Dynamic Curve */}
-                <path
-                  d={generateCurvePath(currentAxis.deadzone, currentAxis.curve, currentAxis.expoPower)}
-                  fill="none"
-                  stroke="#06b6d4"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  className="drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]"
+              {/* Sensitivity Slider */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-300">Sensitivity Multiplier</span>
+                  <span className="font-mono font-bold text-cyan-400">{currentAxis.sensitivity.toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="4.0"
+                  step="0.05"
+                  value={currentAxis.sensitivity}
+                  onChange={(e) => onUpdateAxis(selectedAxis, { sensitivity: parseFloat(e.target.value) })}
+                  className="w-full h-1.5 bg-[#0c0e14] rounded-lg appearance-none cursor-pointer accent-cyan-400"
                 />
-              </svg>
-            </div>
+              </div>
 
-            <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 font-mono">
-              <span>0% Deflection</span>
-              <span>100% Full Stroke</span>
-            </div>
-          </div>
+              {/* Deadzone Slider */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-300">Neutral Sensor Deadzone</span>
+                  <span className="font-mono font-bold text-rose-400">{currentAxis.deadzone}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="35"
+                  step="1"
+                  value={currentAxis.deadzone}
+                  onChange={(e) => onUpdateAxis(selectedAxis, { deadzone: parseInt(e.target.value, 10) })}
+                  className="w-full h-1.5 bg-[#0c0e14] rounded-lg appearance-none cursor-pointer accent-rose-400"
+                />
+              </div>
 
-          <div className="mt-4 pt-3 border-t border-[#1e2632] text-xs text-slate-400 space-y-1">
-            <div className="text-cyan-300 font-mono font-semibold text-[11px]">TRIANGULAR FLEXURE NOTE:</div>
-            <p className="text-[11px] leading-relaxed text-slate-400">
-              The 3 pairs of compression/tension springs provide natural physical centering. Using Sigmoid S or Quadratic curves delivers micro-millimeter precision near rest while allowing full-speed pan/orbit at deflection extremes.
-            </p>
+              {/* Exponential Power Slider */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-300">Exponential Curvature Factor (Gamma)</span>
+                  <span className="font-mono font-bold text-purple-400">{(currentAxis.expoPower || 2.0).toFixed(1)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1.0"
+                  max="3.5"
+                  step="0.1"
+                  value={currentAxis.expoPower || 2.0}
+                  onChange={(e) => onUpdateAxis(selectedAxis, { expoPower: parseFloat(e.target.value) })}
+                  className="w-full h-1.5 bg-[#0c0e14] rounded-lg appearance-none cursor-pointer accent-purple-400"
+                />
+              </div>
+
+              {/* Global Smoothing Alpha */}
+              <div className="pt-2 border-t border-[#232b3c] space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-300">Global Low-Pass Smoothing Alpha</span>
+                  <span className="font-mono font-bold text-emerald-400">{filters.smoothingAlpha.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.8"
+                  step="0.02"
+                  value={filters.smoothingAlpha}
+                  onChange={(e) => onUpdateFilters({ smoothingAlpha: parseFloat(e.target.value) })}
+                  className="w-full h-1.5 bg-[#0c0e14] rounded-lg appearance-none cursor-pointer accent-emerald-400"
+                />
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Global Filtering & Smoothing Settings */}
-      <div className="p-5 bg-[#0a0d12] rounded-xl border border-[#1e2632] space-y-4 shadow-xl">
-        <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2 font-mono">
-          <Sparkles className="w-4 h-4 text-purple-400" />
-          <span>GLOBAL HARDWARE FILTERING & KINEMATICS</span>
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* EMA Filter Alpha */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-300 font-mono">Low-Pass EMA Filter Alpha (α)</span>
-              <span className="font-mono text-purple-400 font-bold">{filters.smoothingAlpha.toFixed(2)}</span>
-            </div>
-            <input
-              type="range"
-              min="0.08"
-              max="0.95"
-              step="0.02"
-              value={filters.smoothingAlpha}
-              onChange={(e) => onUpdateFilters({ smoothingAlpha: parseFloat(e.target.value) })}
-              className="w-full h-2 bg-[#050608] rounded-lg appearance-none cursor-pointer accent-purple-400"
-            />
-            <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>0.08 (Ultra Smooth Glide)</span>
-              <span>0.35 (CAD Balanced)</span>
-              <span>0.95 (Raw Sensor ADC)</span>
-            </div>
-          </div>
-
-          {/* Dominant Axis Toggle & Precision Multiplier */}
-          <div className="space-y-3">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={filters.dominantAxisOnly}
-                onChange={(e) => onUpdateFilters({ dominantAxisOnly: e.target.checked })}
-                className="w-4 h-4 rounded bg-[#050608] border-[#1e2632] text-cyan-500 focus:ring-0"
-              />
-              <span className="text-xs font-semibold text-slate-300 font-mono">
-                Dominant Axis Only Mode (Suppresses accidental secondary axis cross-talk)
+      ) : (
+        /* UNIVERSAL JOYSTICK & AXIS REMAPPING VIEW */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left: Mode Selection (5 Cols) */}
+          <div className="lg:col-span-5 space-y-3">
+            <div className="p-4 rounded-2xl bg-[#141822] border border-[#232b3c] space-y-3">
+              <span className="text-xs font-bold text-white block">
+                Select Output Function for Axis {selectedAxis.toUpperCase()}
               </span>
-            </label>
+              
+              <div className="space-y-2">
+                {AXIS_OUTPUT_MODES.map((mode) => {
+                  const Icon = mode.icon;
+                  const isSelected = (currentAxis.outputMode || 'cad_6dof') === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      onClick={() => onUpdateAxis(selectedAxis, { outputMode: mode.id })}
+                      className={`w-full p-3 rounded-xl border text-left transition flex items-center justify-between ${
+                        isSelected
+                          ? 'bg-purple-950/40 border-purple-500 shadow-sm'
+                          : 'bg-[#0c0e14] border-[#232b3c] hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isSelected ? 'bg-purple-500 text-white' : 'bg-[#141822] text-slate-400'}`}>
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className={`text-xs font-bold block ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                            {mode.label}
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">{mode.desc}</span>
+                        </div>
+                      </div>
+                      {isSelected && <Check className="w-4 h-4 text-purple-400 shrink-0 ml-2" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
 
-            <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-slate-400 font-mono">Precision Multiplier (Shift key modifier)</span>
-              <span className="font-mono text-cyan-400 font-bold">{(filters.precisionMultiplier * 100).toFixed(0)}%</span>
+          {/* Right: Custom Hotkey / Rate Configuration (7 Cols) */}
+          <div className="lg:col-span-7 space-y-4">
+            <div className="p-6 rounded-2xl bg-[#141822] border border-[#232b3c] space-y-5">
+              <div className="space-y-1">
+                <span className="text-xs font-bold text-white block">
+                  Mapping Configuration for Axis {selectedAxis.toUpperCase()} ({currentAxis.outputMode || 'cad_6dof'})
+                </span>
+                <p className="text-xs text-slate-400">
+                  Deflecting the controller knob along this axis will trigger these configured actions.
+                </p>
+              </div>
+
+              {currentAxis.outputMode === 'cad_6dof' && (
+                <div className="p-4 rounded-xl bg-[#0c0e14] border border-[#232b3c] text-xs text-slate-300 space-y-2">
+                  <span className="font-bold text-cyan-400 block">Native 3D Navigation Mode Active</span>
+                  <p>
+                    Axis {selectedAxis.toUpperCase()} operates directly with CAD camera viewports (Fusion 360, Blender, SolidWorks, FreeCAD, Bambu Slicer).
+                  </p>
+                </div>
+              )}
+
+              {currentAxis.outputMode === 'media_volume' && (
+                <div className="space-y-3">
+                  <div className="p-4 rounded-xl bg-[#0c0e14] border border-[#232b3c] space-y-2">
+                    <span className="text-xs font-bold text-white block">Volume Knob Behavior:</span>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2.5 rounded-lg bg-[#141822] border border-cyan-500/30">
+                        <span className="text-[10px] text-cyan-400 font-bold block">+ Deflection (Right / Push)</span>
+                        <span className="text-white font-bold">Volume Up</span>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-[#141822] border border-rose-500/30">
+                        <span className="text-[10px] text-rose-400 font-bold block">- Deflection (Left / Pull)</span>
+                        <span className="text-white font-bold">Volume Down</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {currentAxis.outputMode === 'media_track' && (
+                <div className="space-y-3">
+                  <div className="p-4 rounded-xl bg-[#0c0e14] border border-[#232b3c] space-y-2">
+                    <span className="text-xs font-bold text-white block">Track Skip Behavior:</span>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2.5 rounded-lg bg-[#141822] border border-cyan-500/30">
+                        <span className="text-[10px] text-cyan-400 font-bold block">+ Deflection</span>
+                        <span className="text-white font-bold">Next Track (Skip)</span>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-[#141822] border border-rose-500/30">
+                        <span className="text-[10px] text-rose-400 font-bold block">- Deflection</span>
+                        <span className="text-white font-bold">Previous Track</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {(currentAxis.outputMode === 'keystroke_repeat' || currentAxis.outputMode === 'custom_hotkey_bidirectional') && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-cyan-400">Positive (+) Action Name</label>
+                      <input
+                        type="text"
+                        value={currentAxis.positiveActionName || 'Zoom In'}
+                        onChange={(e) => onUpdateAxis(selectedAxis, { positiveActionName: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg bg-[#0c0e14] border border-[#232b3c] text-xs text-white focus:outline-none focus:border-cyan-500 font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-rose-400">Negative (-) Action Name</label>
+                      <input
+                        type="text"
+                        value={currentAxis.negativeActionName || 'Zoom Out'}
+                        onChange={(e) => onUpdateAxis(selectedAxis, { negativeActionName: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg bg-[#0c0e14] border border-[#232b3c] text-xs text-white focus:outline-none focus:border-rose-500 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Repeat Rate Slider */}
+                  <div className="space-y-2 pt-2 border-t border-[#232b3c]">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-300">Repeat Trigger Rate</span>
+                      <span className="font-mono font-bold text-purple-400">{currentAxis.repeatRateMs || 80} ms</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="20"
+                      max="400"
+                      step="10"
+                      value={currentAxis.repeatRateMs || 80}
+                      onChange={(e) => onUpdateAxis(selectedAxis, { repeatRateMs: parseInt(e.target.value, 10) })}
+                      className="w-full h-1.5 bg-[#0c0e14] rounded-lg appearance-none cursor-pointer accent-purple-400"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

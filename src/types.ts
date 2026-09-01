@@ -1,6 +1,14 @@
-export type AppTarget = 'fusion360' | 'blender' | 'solidworks' | 'freecad' | 'bambu' | 'custom';
+export type AppTarget = 'fusion360' | 'blender' | 'solidworks' | 'freecad' | 'bambu' | 'desktop' | 'custom';
 
 export type CurveType = 'linear' | 'exponential' | 'quadratic' | 's_curve';
+
+export type AxisOutputMode = 
+  | 'cad_6dof' // Standard 3D 6-DOF Orbit/Pan/Zoom
+  | 'media_volume' // Twist / Deflect for Volume Up (+) / Volume Down (-)
+  | 'media_track' // Deflect for Next Track (+) / Previous Track (-)
+  | 'mouse_scroll' // Vertical / Horizontal scroll wheel
+  | 'keystroke_repeat' // Deflection repeats key combo (e.g. Left/Right arrow, Timeline scrub, Zoom)
+  | 'custom_hotkey_bidirectional'; // Positive deflection = Key Combo A, Negative deflection = Key Combo B
 
 export interface AxisParameters {
   deadzone: number; // 0 to 50 (%)
@@ -11,6 +19,13 @@ export interface AxisParameters {
   minRaw: number;
   maxRaw: number;
   centerRaw: number;
+  // Universal Joystick & Axis Output Mapping
+  outputMode?: AxisOutputMode;
+  positiveActionName?: string;
+  positiveKeyCombo?: string[];
+  negativeActionName?: string;
+  negativeKeyCombo?: string[];
+  repeatRateMs?: number; // 20ms to 500ms
 }
 
 export interface SixDofAxesConfig {
@@ -40,19 +55,45 @@ export type ActionType =
   | 'precision_mode' 
   | 'zero_tare' 
   | 'radial_menu' 
-  | 'profile_switch'
-  | 'battery_indicator';
+  | 'profile_cycle_next' // Next Profile on ESP32 Flash with LED spin
+  | 'profile_cycle_prev' // Previous Profile on ESP32 Flash
+  | 'profile_switch'     // Alias for profile cycling
+  | 'battery_indicator'  // 24-LED ring fuel gauge for 3.5s
+  | 'ble_pairing_mode'   // Enter Bluetooth discoverable mode
+  | 'toggle_lights'      // Toggle LED ring ON/OFF
+  | 'cycle_brightness'   // Cycle LED ring brightness (100% -> 75% -> 50% -> 25% -> wrap)
+  | 'toggle_dominant_axis' // Toggle dominant axis isolation
+  | 'reboot_esp32'       // Soft reboot ESP32
+  | 'ble_disconnect_all' // Disconnect / clear bonded BLE devices
+  | 'reset_center'
+  | 'disabled';
+
+export interface SavedCombo {
+  id: string;
+  name: string;
+  category: 'windows' | 'media' | 'web' | 'cad' | 'custom';
+  keys: string[];
+  description?: string;
+}
 
 export interface ButtonMapping {
   id: string;
   pinNumber: number;
+  gridPosition?: number; // 0 to 8 (Key 1 to Key 9 in 3x3 layout)
   label: string;
+  // Tap Action
   actionType: ActionType;
   keyCombo?: string[]; // e.g. ['Control', 'Shift', 'Z'] or ['F6']
   cadActionName?: string; // e.g. 'Fit View', 'Orbit Mode', 'Extrude', 'Look At'
   mouseButton?: 'left' | 'right' | 'middle' | 'wheel_up' | 'wheel_down';
   description: string;
   color?: string;
+  // Hold-down Action (e.g. hold for 0.8s)
+  holdActionType?: ActionType;
+  holdKeyCombo?: string[];
+  holdCadActionName?: string;
+  holdDescription?: string;
+  holdThresholdMs?: number; // default 600ms
   radialOptions?: Array<{ label: string; keyCombo: string[]; iconName: string }>;
 }
 
@@ -85,18 +126,11 @@ export interface LedRingConfig {
   activeSpeed: number; // 1 to 10
   individualLeds: string[]; // Array of 24 hex color strings
   ledCount: number; // 24 for Adafruit NeoPixel ring
+  rotationOffsetDeg: number; // 0, 15, 30, 45, 90, 180, etc. (or LED index offset 0-23) to orient top LED in software
+  rotationLedOffset: number; // 0 to 23 (LED shift index for hardware alignment)
 }
 
 export type LightSleepLedBehavior = 'dim_slow_breathe' | 'single_pulse_beacon' | 'off';
-
-export interface TriangularSpringFlexureConfig {
-  flexureGeometry: 'triangular_6_spring_parallel'; // Stewart/Delta-derived paired compression/tension springs
-  springRateStiffness: number; // 0.1 to 3.0 (compliance factor)
-  radialSymmetryDeg: number; // 120 deg 3-post equilateral geometry
-  shearTiltDecoupling: number; // 0.0 to 1.0 (decouple lateral translation X/Y from tilt Rx/Ry)
-  axialZPreloadComp: number; // 0.0 to 1.0 (vertical compression/tension balance)
-  torsionYawDamping: number; // 0.5 to 0.99 (spring leaky center return)
-}
 
 export interface PowerManagementConfig {
   batteryCapacityMah: number; // e.g. 4200 mAh (AKZYTUE LiPo 3.7V)
@@ -106,7 +140,6 @@ export interface PowerManagementConfig {
   lightSleepCpuFreqMhz: number; // e.g. 80 MHz (down from 240 MHz)
   enableDeepSleep: boolean; // default true
   deepSleepTimeoutMin: number; // default 60 minutes
-  wakeOnMotionThreshold: number; // 1 to 50 (sensitivity threshold for MPU6050 WOM)
   wakeOnButtons: boolean; // true - any of 9 buttons wakes immediately
   autoReconnectBle: boolean; // true - quick resume without re-pairing
   // Battery Sensing with 2x 100k Ohm Voltage Divider
@@ -132,8 +165,7 @@ export interface Profile {
   ledColor: string; // Hex color for ESP32 status LED ring (Neopixel)
   ledRing?: LedRingConfig;
   powerManagement?: PowerManagementConfig;
-  triangularFlexure?: TriangularSpringFlexureConfig;
-  hapticFeedback: boolean;
+  decouplingMatrix?: number[][]; // 6x6 matrix for cross-talk cancellation
 }
 
 export interface SixDofState {

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { SixDofState } from '../types';
-import { Box, Eye, Layers, RefreshCw, Sparkles, Orbit } from 'lucide-react';
+import { Box, Eye, Layers, RefreshCw, Sparkles, Orbit, Compass } from 'lucide-react';
 
 interface Visualizer3DProps {
   state: SixDofState;
@@ -11,7 +11,7 @@ interface Visualizer3DProps {
 
 export const Visualizer3D: React.FC<Visualizer3DProps> = ({
   state,
-  ledColor = '#ff8800',
+  ledColor = '#00e5ff',
   isSimulating = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -25,6 +25,7 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
   const puckGroupRef = useRef<THREE.Group | null>(null);
   const cadGroupRef = useRef<THREE.Group | null>(null);
   const ledMeshRef = useRef<THREE.Mesh | null>(null);
+  const dynamicModelRef = useRef<THREE.Mesh | null>(null);
 
   // CAD scene camera manipulation state
   const cadCameraState = useRef({
@@ -39,17 +40,17 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
     if (!containerRef.current) return;
 
     const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight || 360;
+    const height = containerRef.current.clientHeight || 380;
 
     // 1. Scene setup
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x06080c); // Deep Cyber Black
+    scene.background = new THREE.Color(0x0a0d14);
     sceneRef.current = scene;
 
     // 2. Camera setup
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    camera.position.set(0, 3.8, 6.5);
-    camera.lookAt(0, 0.4, 0);
+    camera.position.set(0, 4.2, 7.2);
+    camera.lookAt(0, 0.5, 0);
     cameraRef.current = camera;
 
     // 3. Renderer setup
@@ -63,110 +64,211 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(renderer.domElement);
 
-    // 4. Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    // 4. Studio Lighting (OOFO Cinematic Setup)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
     scene.add(ambientLight);
 
-    const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight1.position.set(5, 10, 7);
-    dirLight1.castShadow = true;
-    scene.add(dirLight1);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    keyLight.position.set(5, 12, 8);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 1024;
+    keyLight.shadow.mapSize.height = 1024;
+    scene.add(keyLight);
 
-    const dirLight2 = new THREE.DirectionalLight(0x06b6d4, 0.8); // Cyan rim light
-    dirLight2.position.set(-5, 3, -5);
-    scene.add(dirLight2);
+    const rimLight = new THREE.DirectionalLight(0x00e5ff, 0.7);
+    rimLight.position.set(-6, 4, -5);
+    scene.add(rimLight);
 
-    // 5. Build SpaceMouse Puck Model
+    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.4);
+    fillLight.position.set(0, -4, 4);
+    scene.add(fillLight);
+
+    // 5. Build SpaceMouse Hardware Model (Ergonomic contoured body with palm rest, 3x3 keypad, textured grip, and 6-DOF puck)
     const puckMaster = new THREE.Group();
     puckGroupRef.current = puckMaster;
 
-    // Base pedestal
-    const baseGeo = new THREE.CylinderGeometry(2.0, 2.3, 0.5, 48);
-    const baseMat = new THREE.MeshStandardMaterial({
-      color: 0x111620,
-      metalness: 0.85,
-      roughness: 0.25,
+    // --- A. Ergonomic Contoured Main Base Chassis ---
+    const bodyGeo = new THREE.CylinderGeometry(2.4, 2.7, 0.45, 64);
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x141822,
+      metalness: 0.3,
+      roughness: 0.6,
     });
-    const baseMesh = new THREE.Mesh(baseGeo, baseMat);
-    baseMesh.position.y = -0.25;
-    baseMesh.receiveShadow = true;
-    puckMaster.add(baseMesh);
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.position.set(0, -0.22, 0);
+    bodyMesh.receiveShadow = true;
+    puckMaster.add(bodyMesh);
 
-    // LED Glow Ring
-    const ledGeo = new THREE.TorusGeometry(1.95, 0.05, 16, 64);
-    const ledMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(ledColor) });
-    const ledMesh = new THREE.Mesh(ledGeo, ledMat);
-    ledMesh.rotation.x = Math.PI / 2;
-    ledMesh.position.y = 0.02;
-    puckMaster.add(ledMesh);
-    ledMeshRef.current = ledMesh;
+    // Sweeping Palm Rest extension on bottom
+    const palmRestGeo = new THREE.BoxGeometry(3.6, 0.35, 2.2);
+    const palmRestMat = new THREE.MeshStandardMaterial({
+      color: 0x11151e,
+      metalness: 0.2,
+      roughness: 0.7,
+    });
+    const palmRestMesh = new THREE.Mesh(palmRestGeo, palmRestMat);
+    palmRestMesh.position.set(0.2, -0.25, 1.6);
+    palmRestMesh.rotation.x = 0.08;
+    puckMaster.add(palmRestMesh);
 
-    // Center moving Cap / Knob
+    // --- B. Textured Rubber Side Grip on Right ---
+    const gripGeo = new THREE.BoxGeometry(0.5, 0.25, 1.8);
+    const gripMat = new THREE.MeshStandardMaterial({
+      color: 0x0c0f17,
+      metalness: 0.1,
+      roughness: 0.9,
+    });
+    const gripMesh = new THREE.Mesh(gripGeo, gripMat);
+    gripMesh.position.set(1.95, -0.15, 0.5);
+    gripMesh.rotation.y = -0.2;
+    puckMaster.add(gripMesh);
+
+    // Subtle grip ribs
+    for (let r = -0.6; r <= 0.6; r += 0.2) {
+      const ribGeo = new THREE.BoxGeometry(0.52, 0.04, 0.06);
+      const ribMat = new THREE.MeshStandardMaterial({ color: 0x181f2c });
+      const ribMesh = new THREE.Mesh(ribGeo, ribMat);
+      ribMesh.position.set(1.95, -0.05, 0.5 + r);
+      ribMesh.rotation.y = -0.2;
+      puckMaster.add(ribMesh);
+    }
+
+    // --- C. Integrated 3x3 Keypad on Left Front Slope ---
+    const keypadBaseGeo = new THREE.BoxGeometry(1.6, 0.15, 1.6);
+    const keypadBaseMat = new THREE.MeshStandardMaterial({ color: 0x0a0d14, metalness: 0.4, roughness: 0.5 });
+    const keypadBase = new THREE.Mesh(keypadBaseGeo, keypadBaseMat);
+    keypadBase.position.set(-1.4, -0.1, 1.1);
+    keypadBase.rotation.y = 0.25;
+    keypadBase.rotation.x = 0.12;
+    puckMaster.add(keypadBase);
+
+    // 9 Mechanical Keycaps
+    const keyGeo = new THREE.BoxGeometry(0.36, 0.14, 0.36);
+    const keyMat = new THREE.MeshStandardMaterial({ color: 0x1e2636, metalness: 0.2, roughness: 0.6 });
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        const keyMesh = new THREE.Mesh(keyGeo, keyMat);
+        const kx = (col - 1) * 0.44;
+        const kz = (row - 1) * 0.44;
+        keyMesh.position.set(kx, 0.1, kz);
+        keypadBase.add(keyMesh);
+      }
+    }
+
+    // --- D. 24-LED Illuminated Halo Ring ---
+    const haloGeo = new THREE.TorusGeometry(1.78, 0.06, 16, 64);
+    const haloMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(ledColor) });
+    const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+    haloMesh.rotation.x = Math.PI / 2;
+    haloMesh.position.y = 0.05;
+    puckMaster.add(haloMesh);
+    ledMeshRef.current = haloMesh;
+
+    // --- E. Central 6-DOF Deflection Knob Puck ---
     const capGroup = new THREE.Group();
     capGroup.name = 'capGroup';
 
-    // Rubber ring
-    const capBaseGeo = new THREE.CylinderGeometry(1.6, 1.7, 0.9, 48);
-    const capBaseMat = new THREE.MeshStandardMaterial({
-      color: 0x1e2736,
-      metalness: 0.3,
-      roughness: 0.7,
+    // Lower collar
+    const collarGeo = new THREE.CylinderGeometry(1.4, 1.5, 0.6, 48);
+    const collarMat = new THREE.MeshStandardMaterial({
+      color: 0x181d2a,
+      metalness: 0.4,
+      roughness: 0.6,
     });
-    const capBase = new THREE.Mesh(capBaseGeo, capBaseMat);
-    capBase.position.y = 0.55;
-    capGroup.add(capBase);
+    const collar = new THREE.Mesh(collarGeo, collarMat);
+    collar.position.y = 0.35;
+    capGroup.add(collar);
 
-    // Ergonomic concave top cap
-    const capTopGeo = new THREE.CylinderGeometry(1.5, 1.6, 0.4, 48);
-    const capTopMat = new THREE.MeshStandardMaterial({
-      color: 0x090c12,
-      metalness: 0.9,
-      roughness: 0.15,
+    // Ergonomic top grip cap
+    const topCapGeo = new THREE.CylinderGeometry(1.48, 1.4, 0.55, 48);
+    const topCapMat = new THREE.MeshStandardMaterial({
+      color: 0x0c0f16,
+      metalness: 0.7,
+      roughness: 0.3,
     });
-    const capTop = new THREE.Mesh(capTopGeo, capTopMat);
-    capTop.position.y = 1.1;
-    capGroup.add(capTop);
+    const topCap = new THREE.Mesh(topCapGeo, topCapMat);
+    topCap.position.y = 0.88;
+    capGroup.add(topCap);
 
-    // Aluminum Trim Ring
-    const ringGeo = new THREE.TorusGeometry(1.62, 0.04, 16, 48);
-    const ringMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.95, roughness: 0.1 });
-    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    ringMesh.rotation.x = Math.PI / 2;
-    ringMesh.position.y = 0.98;
-    capGroup.add(ringMesh);
+    // Beveled metallic ring
+    const metallicRingGeo = new THREE.TorusGeometry(1.46, 0.035, 16, 48);
+    const metallicRingMat = new THREE.MeshStandardMaterial({ color: 0x00e5ff, metalness: 0.9, roughness: 0.1 });
+    const metallicRing = new THREE.Mesh(metallicRingGeo, metallicRingMat);
+    metallicRing.rotation.x = Math.PI / 2;
+    metallicRing.position.y = 0.65;
+    capGroup.add(metallicRing);
 
-    // 6-Axis Coordinate Arrows (Gizmo on Cap)
-    const axesGizmo = new THREE.AxesHelper(1.2);
-    axesGizmo.position.y = 1.4;
+    // Concave crown insert
+    const crownGeo = new THREE.CylinderGeometry(1.2, 1.3, 0.1, 48);
+    const crownMat = new THREE.MeshStandardMaterial({ color: 0x141822, metalness: 0.8, roughness: 0.2 });
+    const crown = new THREE.Mesh(crownGeo, crownMat);
+    crown.position.y = 1.16;
+    capGroup.add(crown);
+
+    // 6-Axis Center Coordinate Gizmo
+    const axesGizmo = new THREE.AxesHelper(1.1);
+    axesGizmo.position.y = 1.25;
     capGroup.add(axesGizmo);
 
     puckMaster.add(capGroup);
     scene.add(puckMaster);
 
-    // 6. Build CAD Geometry Assembly for CAD testing mode
+    // --- 6. CAD 3D Scene Viewport Setup ---
     const cadMaster = new THREE.Group();
     cadGroupRef.current = cadMaster;
     cadMaster.visible = false;
 
-    // Grid Floor
-    const grid = new THREE.GridHelper(10, 20, 0x06b6d4, 0x1e2632);
-    grid.position.y = -1.5;
+    // Floor Grid
+    const grid = new THREE.GridHelper(12, 24, 0x00e5ff, 0x1c2434);
+    grid.position.y = -1.4;
     cadMaster.add(grid);
 
+    // Build Initial CAD Model
+    const createCadModel = (type: 'turbine' | 'bracket' | 'torus', isWire: boolean) => {
+      if (dynamicModelRef.current) {
+        cadMaster.remove(dynamicModelRef.current);
+        dynamicModelRef.current.geometry.dispose();
+      }
+
+      let geo: THREE.BufferGeometry;
+      if (type === 'turbine') {
+        geo = new THREE.TorusKnotGeometry(1.2, 0.35, 100, 16, 2, 3);
+      } else if (type === 'bracket') {
+        geo = new THREE.BoxGeometry(2.2, 2.2, 2.2);
+      } else {
+        geo = new THREE.TorusGeometry(1.4, 0.45, 24, 64);
+      }
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,
+        metalness: 0.6,
+        roughness: 0.3,
+        wireframe: isWire,
+      });
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = 0.5;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      cadMaster.add(mesh);
+      dynamicModelRef.current = mesh;
+    };
+
+    createCadModel(cadModelType, wireframe);
     scene.add(cadMaster);
 
     // ResizeObserver
     const resizeObserver = new ResizeObserver(() => {
       if (!containerRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = containerRef.current.clientWidth;
-      const h = containerRef.current.clientHeight || 360;
+      const h = containerRef.current.clientHeight || 380;
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
     });
     resizeObserver.observe(containerRef.current);
 
-    // Animation Loop
+    // Animation Render Loop
     let animationFrameId: number;
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
@@ -183,75 +285,12 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
     };
   }, []);
 
-  // Update LED Color
+  // Update LED Halo Color
   useEffect(() => {
     if (ledMeshRef.current) {
       (ledMeshRef.current.material as THREE.MeshBasicMaterial).color.set(ledColor);
     }
   }, [ledColor]);
-
-  // Update CAD Model Mesh when switching types or wireframe
-  useEffect(() => {
-    if (!cadGroupRef.current) return;
-    const cadGroup = cadGroupRef.current;
-
-    // Remove old mesh (keep grid)
-    const oldMesh = cadGroup.getObjectByName('cadModel');
-    if (oldMesh) cadGroup.remove(oldMesh);
-
-    let geo: THREE.BufferGeometry;
-    if (cadModelType === 'turbine') {
-      // Create multi-blade impeller
-      const group = new THREE.Group();
-      group.name = 'cadModel';
-      const hub = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.6, 0.9, 1.2, 32),
-        new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.8, roughness: 0.2, wireframe })
-      );
-      group.add(hub);
-
-      for (let i = 0; i < 8; i++) {
-        const blade = new THREE.Mesh(
-          new THREE.BoxGeometry(0.12, 1.1, 1.4),
-          new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.6, roughness: 0.3, wireframe })
-        );
-        blade.position.set(Math.sin((i / 8) * Math.PI * 2) * 1.1, 0, Math.cos((i / 8) * Math.PI * 2) * 1.1);
-        blade.rotation.y = (i / 8) * Math.PI * 2 + 0.4;
-        blade.rotation.z = 0.3;
-        group.add(blade);
-      }
-      cadGroup.add(group);
-    } else if (cadModelType === 'bracket') {
-      // Mechanical Bracket
-      const group = new THREE.Group();
-      group.name = 'cadModel';
-      const base = new THREE.Mesh(
-        new THREE.BoxGeometry(2.4, 0.4, 2.0),
-        new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.7, roughness: 0.3, wireframe })
-      );
-      const upright = new THREE.Mesh(
-        new THREE.BoxGeometry(0.4, 2.0, 2.0),
-        new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.7, roughness: 0.3, wireframe })
-      );
-      upright.position.set(-1.0, 1.0, 0);
-      const boss = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.6, 0.6, 0.6, 24),
-        new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.9, roughness: 0.2, wireframe })
-      );
-      boss.rotation.z = Math.PI / 2;
-      boss.position.set(-0.8, 1.4, 0);
-      group.add(base, upright, boss);
-      cadGroup.add(group);
-    } else {
-      // Knot Torus
-      const mesh = new THREE.Mesh(
-        new THREE.TorusKnotGeometry(1.1, 0.35, 100, 16),
-        new THREE.MeshStandardMaterial({ color: 0x10b981, metalness: 0.8, roughness: 0.2, wireframe })
-      );
-      mesh.name = 'cadModel';
-      cadGroup.add(mesh);
-    }
-  }, [cadModelType, wireframe]);
 
   // Update View Mode Visibility
   useEffect(() => {
@@ -259,8 +298,8 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
       if (viewMode === 'puck') {
         puckGroupRef.current.visible = true;
         cadGroupRef.current.visible = false;
-        cameraRef.current.position.set(0, 3.8, 6.5);
-        cameraRef.current.lookAt(0, 0.4, 0);
+        cameraRef.current.position.set(0, 4.2, 7.2);
+        cameraRef.current.lookAt(0, 0.5, 0);
       } else {
         puckGroupRef.current.visible = false;
         cadGroupRef.current.visible = true;
@@ -273,35 +312,28 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
     if (viewMode === 'puck' && puckGroupRef.current) {
       const capGroup = puckGroupRef.current.getObjectByName('capGroup');
       if (capGroup) {
-        // Linear deflection mapping
         capGroup.position.x = (state.x || 0) * 0.45;
-        capGroup.position.z = -(state.y || 0) * 0.45; // Pan Y maps to screen depth
-        capGroup.position.y = (state.z || 0) * 0.35; // Pan Z maps to vertical push/pull
+        capGroup.position.z = -(state.y || 0) * 0.45;
+        capGroup.position.y = (state.z || 0) * 0.35;
 
-        // Angular tilt & twist mapping (Pitch, Roll, Yaw)
         capGroup.rotation.x = -(state.rx || 0) * 0.35;
         capGroup.rotation.z = -(state.ry || 0) * 0.35;
         capGroup.rotation.y = -(state.rz || 0) * 0.55;
       }
     } else if (viewMode === 'cad_scene' && cameraRef.current) {
-      // Apply 6-DOF velocity directly to CAD Camera
       const s = cadCameraState.current;
       const speed = 0.05;
 
-      // Orbit Rotations
       s.rotY += (state.rz || 0) * speed * 0.8;
       s.rotX += (state.rx || 0) * speed * 0.8;
       s.rotX = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, s.rotX));
 
-      // Pan Translations
       s.panX += (state.x || 0) * speed * 0.6;
       s.panY += (state.y || 0) * speed * 0.6;
 
-      // Zoom
       s.distance += -(state.z || 0) * speed * 1.5;
       s.distance = Math.max(2, Math.min(18, s.distance));
 
-      // Calculate new camera position
       const cam = cameraRef.current;
       const posX = s.panX + s.distance * Math.sin(s.rotY) * Math.cos(s.rotX);
       const posY = s.panY + s.distance * Math.sin(s.rotX);
@@ -323,73 +355,71 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full min-h-[380px] rounded-xl overflow-hidden bg-[#06080c] border border-[#1e2632] shadow-2xl flex flex-col glow-cyan-sm">
+    <div className="relative w-full h-full min-h-[400px] rounded-2xl overflow-hidden bg-[#0a0d14] border border-[#232b3c] shadow-2xl flex flex-col">
       {/* Visualizer Top Bar Controls */}
       <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none">
         {/* View Mode Toggle */}
-        <div className="flex items-center gap-1.5 p-1 bg-[#090b0e]/90 backdrop-blur-md rounded-lg border border-[#1e2632] shadow-xl pointer-events-auto">
+        <div className="flex items-center gap-1 p-1 bg-[#141822]/90 backdrop-blur-md rounded-xl border border-[#232b3c] shadow-xl pointer-events-auto">
           <button
-            id="view-mode-puck"
             onClick={() => setViewMode('puck')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold font-mono transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               viewMode === 'puck'
-                ? 'bg-cyan-500 text-black shadow-md glow-cyan-sm font-bold'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                ? 'bg-cyan-500 text-black font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
             <Orbit className="w-3.5 h-3.5" />
-            <span>SPACEMOUSE PUCK</span>
+            <span>3D SpaceMouse Model</span>
           </button>
           <button
-            id="view-mode-cad"
             onClick={() => setViewMode('cad_scene')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold font-mono transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
               viewMode === 'cad_scene'
-                ? 'bg-cyan-500 text-black shadow-md glow-cyan-sm font-bold'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+                ? 'bg-cyan-500 text-black font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white'
             }`}
           >
             <Box className="w-3.5 h-3.5" />
-            <span>CAD 3D VIEWPORT</span>
+            <span>CAD Viewport</span>
           </button>
         </div>
 
         {/* CAD Scene Options */}
         {viewMode === 'cad_scene' && (
           <div className="flex items-center gap-2 pointer-events-auto">
-            <div className="flex items-center gap-1 p-1 bg-[#090b0e]/90 backdrop-blur-md rounded-lg border border-[#1e2632] text-xs font-mono">
+            <div className="flex items-center gap-1 p-1 bg-[#141822]/90 backdrop-blur-md rounded-xl border border-[#232b3c] text-xs">
               <button
                 onClick={() => setCadModelType('turbine')}
-                className={`px-2 py-1 rounded transition-colors ${cadModelType === 'turbine' ? 'bg-cyan-950/80 border border-cyan-500/40 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                className={`px-2.5 py-1 rounded-lg transition ${cadModelType === 'turbine' ? 'bg-cyan-500 text-black font-bold' : 'text-slate-400 hover:text-white'}`}
               >
                 Turbine
               </button>
               <button
                 onClick={() => setCadModelType('bracket')}
-                className={`px-2 py-1 rounded transition-colors ${cadModelType === 'bracket' ? 'bg-cyan-950/80 border border-cyan-500/40 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                className={`px-2.5 py-1 rounded-lg transition ${cadModelType === 'bracket' ? 'bg-cyan-500 text-black font-bold' : 'text-slate-400 hover:text-white'}`}
               >
                 Bracket
               </button>
               <button
                 onClick={() => setCadModelType('torus')}
-                className={`px-2 py-1 rounded transition-colors ${cadModelType === 'torus' ? 'bg-cyan-950/80 border border-cyan-500/40 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                className={`px-2.5 py-1 rounded-lg transition ${cadModelType === 'torus' ? 'bg-cyan-500 text-black font-bold' : 'text-slate-400 hover:text-white'}`}
               >
                 Knot
               </button>
             </div>
             <button
               onClick={() => setWireframe(!wireframe)}
-              title="Toggle Wireframe"
-              className={`p-2 rounded-lg border transition-all ${
-                wireframe ? 'bg-cyan-950/80 border-cyan-500 text-cyan-400' : 'bg-[#090b0e]/90 border-[#1e2632] text-slate-400 hover:text-white'
+              className={`p-2 rounded-xl border transition ${
+                wireframe ? 'bg-cyan-500 text-black border-cyan-400' : 'bg-[#141822]/90 border-[#232b3c] text-slate-400 hover:text-white'
               }`}
+              title="Toggle Wireframe"
             >
               <Layers className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={resetCadCamera}
-              title="Recenter Camera (Home View)"
-              className="p-2 rounded-lg bg-[#090b0e]/90 border border-[#1e2632] text-slate-400 hover:text-white hover:border-cyan-500/50 transition-all"
+              className="p-2 rounded-xl bg-[#141822]/90 border border-[#232b3c] text-slate-400 hover:text-white transition"
+              title="Reset Camera (Home View)"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
@@ -401,14 +431,14 @@ export const Visualizer3D: React.FC<Visualizer3DProps> = ({
       <div ref={containerRef} className="w-full flex-1 cursor-grab active:cursor-grabbing" />
 
       {/* Bottom Telemetry Overlay */}
-      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none text-xs font-mono">
-        <div className="px-3 py-1 rounded-lg bg-[#090b0e]/85 backdrop-blur-md border border-[#1e2632] text-slate-300 flex items-center gap-2 text-[11px]">
+      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none text-xs">
+        <div className="px-3 py-1.5 rounded-xl bg-[#141822]/90 backdrop-blur-md border border-[#232b3c] text-slate-300 flex items-center gap-2 text-[11px]">
           <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: ledColor }} />
-          <span>{viewMode === 'puck' ? '6-DOF LIVE DEFLECTION' : 'CAD FREE CAMERA ORBIT / PAN'}</span>
+          <span>{viewMode === 'puck' ? '6-DOF Live Deflection & Halo Ring' : 'CAD Orbit / Pan / Zoom Testing'}</span>
         </div>
         {isSimulating && (
-          <div className="px-3 py-1 rounded-lg bg-amber-950/80 border border-amber-600/60 text-amber-300 text-[11px] font-bold glow-amber-sm">
-            SIMULATION ACTIVE (W/A/S/D/Q/E)
+          <div className="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 text-[11px] font-bold">
+            Simulating with Keyboard (W/A/S/D/Q/E)
           </div>
         )}
       </div>

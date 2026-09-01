@@ -1,6 +1,7 @@
 {
-  "name": "DIY SpaceMouse Studio",
-  "description": "ESP32 6-DOF 3D SpaceMouse configurator, WebSerial live tuner, Fusion 360 & Blender button mapping studio, sensor calibration wizard, and firmware generator.",
+  "name": "OOFO One Studio",
+  "description": "ESP32 6-DOF OOFO One 3D controller configurator with Web Bluetooth & Web Serial, onboard multi-profile NVS flash storage, universal joystick axis remapping, 9-key mechanical matrix, 24-LED ring studio, and battery optimizer.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
+

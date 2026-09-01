@@ -5,9 +5,10 @@ import { Cpu, Download, Copy, Check, Terminal, CircuitBoard, Sparkles, AlertTria
 
 interface FirmwareGeneratorTabProps {
   profile: Profile;
+  allProfiles?: Profile[];
 }
 
-export const FirmwareGeneratorTab: React.FC<FirmwareGeneratorTabProps> = ({ profile }) => {
+export const FirmwareGeneratorTab: React.FC<FirmwareGeneratorTabProps> = ({ profile, allProfiles }) => {
   const [config, setConfig] = useState<FirmwareConfig>({
     chip: 'esp32_wroom',
     sensorType: 'imu_mpu6050_spring',
@@ -28,7 +29,7 @@ export const FirmwareGeneratorTab: React.FC<FirmwareGeneratorTabProps> = ({ prof
   const [copiedIni, setCopiedIni] = useState<boolean>(false);
   const [viewFile, setViewFile] = useState<'cpp' | 'ini' | 'wiring'>('cpp');
 
-  const generatedCpp = generateEsp32Firmware(config, profile);
+  const generatedCpp = generateEsp32Firmware(config, profile, allProfiles);
   const generatedIni = generatePlatformioIni(config);
 
   const handleCopy = (text: string, type: 'cpp' | 'ini') => {
@@ -62,13 +63,13 @@ export const FirmwareGeneratorTab: React.FC<FirmwareGeneratorTabProps> = ({ prof
             <span>ESP32 FIRMWARE GENERATOR & C++ SOURCE</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5 font-mono">
-            Generates turnkey C++ Arduino/PlatformIO firmware with native USB 3D SpaceMouse HID report descriptors.
+            Generates turnkey C++ Arduino/PlatformIO firmware for the OOFO One 6-DOF Controller.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => handleDownload('SpaceMouse_ESP32.ino', generatedCpp)}
+            onClick={() => handleDownload('OOFO_One_ESP32.ino', generatedCpp)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-black text-xs font-bold font-mono shadow-md glow-cyan-sm transition-all active:scale-95"
           >
             <Download className="w-3.5 h-3.5 text-black" />

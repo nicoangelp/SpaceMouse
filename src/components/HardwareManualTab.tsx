@@ -38,7 +38,7 @@ export const HardwareManualTab: React.FC<HardwareManualTabProps> = ({
 
   const handleCopyWiring = () => {
     const text = `
-=== ESP32 DIY 6-DOF SPACEMOUSE PINOUT & WIRING MATRIX ===
+=== OOFO ONE 6-DOF CONTROLLER PINOUT & WIRING MATRIX ===
 Target MCU: ELEGOO ESP-WROOM-32 (USB-C CP2102)
 
 1. MPU-6050 6-AXIS IMU (I2C):
@@ -105,7 +105,7 @@ Target MCU: ELEGOO ESP-WROOM-32 (USB-C CP2102)
               <span>HARDWARE ASSEMBLY MANUAL & WIRING SCHEMATICS</span>
             </h1>
             <p className="text-xs text-slate-300 font-mono max-w-3xl">
-              Complete engineering manual for your custom 6-DOF SpaceMouse build: spring kinematics, electrical pinouts, 3x3 mechanical macro keypad, underglow ring, and LiPo power system.
+              Complete engineering manual for your custom OOFO One 6-DOF build: spring kinematics, electrical pinouts, 3x3 mechanical macro keypad, underglow ring, and LiPo power system.
             </p>
           </div>
 

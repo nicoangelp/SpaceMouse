@@ -41,7 +41,7 @@ export const SerialMonitorTab: React.FC<SerialMonitorTabProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `spacemouse_serial_log_${Date.now()}.txt`;
+    link.download = `oofo_one_serial_log_${Date.now()}.txt`;
     link.click();
     URL.revokeObjectURL(url);
   };
