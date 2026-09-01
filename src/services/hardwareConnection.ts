@@ -385,26 +385,37 @@ class HardwareConnectionManager {
       if (profile.axes.ry.inverted) invMask |= 16;
       if (profile.axes.rz.inverted) invMask |= 32;
 
-      // 1. SET_PROFILE:<idx>:<hexP>:<hexS>:<hexA>:<sx>:<sy>:<sz>:<srx>:<sry>:<srz>:<dzX>:<dzY>:<dzZ>:<dzRx>:<dzRy>:<dzRz>:<invMask>
-      await this.sendCommand(`SET_PROFILE:${pIdx}:${hexP}:${hexS}:${hexA}:${sx}:${sy}:${sz}:${srx}:${sry}:${srz}:${dzX}:${dzY}:${dzZ}:${dzRx}:${dzRy}:${dzRz}:${invMask}`);
+      // 1. SET_PROFILE:<idx>:<hexP>:<hexS>:<sx>:<sy>:<sz>:<srx>:<sry>:<srz>:<dzX>:<dzY>:<dzZ>:<dzRx>:<dzRy>:<dzRz>:<invMask>
+      await this.sendCommand(`SET_PROFILE:${pIdx}:${hexP}:${hexS}:${sx}:${sy}:${sz}:${srx}:${sry}:${srz}:${dzX}:${dzY}:${dzZ}:${dzRx}:${dzRy}:${dzRz}:${invMask}`);
       await this.delay(30);
 
       // 1.1 SET_LED:<profIdx>:<hexP>:<hexS>:<hexA>:<idleAnim>:<idleSpd>:<activeAnim>:<activeSpd>:<bright>:<rotOffset>
       await this.sendCommand(`SET_LED:${pIdx}:${hexP}:${hexS}:${hexA}:${idleAnim}:${idleSpd}:${activeAnim}:${activeSpd}:${bright}:${rotOffset}`);
       await this.delay(25);
 
-      // 1.2 SET_MATRIX:<pIdx>:<row>:<m0>:<m1>:<m2>:<m3>:<m4>:<m5>
-      if (profile.decouplingMatrix && profile.decouplingMatrix.length === 6) {
-        for (let r = 0; r < 6; r++) {
-          const row = profile.decouplingMatrix[r];
-          await this.sendCommand(`SET_MATRIX:${pIdx}:${r}:${(row[0] ?? 0).toFixed(3)}:${(row[1] ?? 0).toFixed(3)}:${(row[2] ?? 0).toFixed(3)}:${(row[3] ?? 0).toFixed(3)}:${(row[4] ?? 0).toFixed(3)}:${(row[5] ?? 0).toFixed(3)}`);
-          await this.delay(12);
-        }
+      // 1.2 SET_POWER:<lightSleepMin>:<deepSleepMin>
+      await this.sendCommand(`SET_POWER:15:60`);
+      await this.delay(20);
+
+      // 1.3 SET_FILTERS:<alpha>:<jitter>:<precisionMult>
+      if (profile.filters) {
+        await this.sendCommand(`SET_FILTERS:${profile.filters.smoothingAlpha.toFixed(3)}:${(profile.filters.jitterThreshold ?? 0.0).toFixed(2)}:${(profile.filters.precisionMultiplier ?? 0.25).toFixed(2)}`);
+        await this.delay(20);
+        await this.sendCommand(`NVS_DOMINANT:${profile.filters.dominantAxisOnly ? 1 : 0}`);
+        await this.delay(20);
       }
 
-      // 1.3 SET_AXIS_MAP for all 6 axes
+      // 1.4 SET_MATRIX and SET_AXIS_MAP for all 6 axes
       const AXIS_NAMES = ['x', 'y', 'z', 'rx', 'ry', 'rz'] as const;
       for (let a = 0; a < 6; a++) {
+        // SET_MATRIX row
+        if (profile.decouplingMatrix && profile.decouplingMatrix.length === 6) {
+          const row = profile.decouplingMatrix[a];
+          await this.sendCommand(`SET_MATRIX:${pIdx}:${a}:${(row[0] ?? 0).toFixed(3)}:${(row[1] ?? 0).toFixed(3)}:${(row[2] ?? 0).toFixed(3)}:${(row[3] ?? 0).toFixed(3)}:${(row[4] ?? 0).toFixed(3)}:${(row[5] ?? 0).toFixed(3)}`);
+          await this.delay(12);
+        }
+
+        // SET_AXIS_MAP
         const axisKey = AXIS_NAMES[a];
         const axis = profile.axes[axisKey];
         const outMode = getAxisOutputModeEnum(axis.outputMode);
@@ -431,14 +442,6 @@ class HardwareConnectionManager {
           await this.sendCommand(`SET_KEY4:${pIdx}:${b}:1:${holdAct}:${holdCodes[0]}:${holdCodes[1]}:${holdCodes[2]}:${holdCodes[3]}`);
           await this.delay(12);
         }
-      }
-
-      // 3. Set Filter Smoothing & Jitter & Precision Multiplier
-      if (profile.filters) {
-        await this.sendCommand(`SET_FILTERS:${profile.filters.smoothingAlpha.toFixed(3)}:${(profile.filters.jitterThreshold ?? 0.0).toFixed(2)}:${(profile.filters.precisionMultiplier ?? 0.25).toFixed(2)}`);
-        await this.delay(20);
-        await this.sendCommand(`NVS_DOMINANT:${profile.filters.dominantAxisOnly ? 1 : 0}`);
-        await this.delay(20);
       }
 
       // 4. Commit to NVS Flash
@@ -535,25 +538,36 @@ class HardwareConnectionManager {
         if (p.axes.ry.inverted) invMask |= 16;
         if (p.axes.rz.inverted) invMask |= 32;
 
-        // SET_PROFILE:<idx>:<hexP>:<hexS>:<hexA>:<sx>:<sy>:<sz>:<srx>:<sry>:<srz>:<dzX>:<dzY>:<dzZ>:<dzRx>:<dzRy>:<dzRz>:<invMask>
-        await this.sendCommand(`SET_PROFILE:${i}:${hexP}:${hexS}:${hexA}:${sx}:${sy}:${sz}:${srx}:${sry}:${srz}:${dzX}:${dzY}:${dzZ}:${dzRx}:${dzRy}:${dzRz}:${invMask}`);
+        // SET_PROFILE:<idx>:<hexP>:<hexS>:<sx>:<sy>:<sz>:<srx>:<sry>:<srz>:<dzX>:<dzY>:<dzZ>:<dzRx>:<dzRy>:<dzRz>:<invMask>
+        await this.sendCommand(`SET_PROFILE:${i}:${hexP}:${hexS}:${sx}:${sy}:${sz}:${srx}:${sry}:${srz}:${dzX}:${dzY}:${dzZ}:${dzRx}:${dzRy}:${dzRz}:${invMask}`);
         await this.delay(25);
 
         // SET_LED:<profIdx>:<hexP>:<hexS>:<hexA>:<idleAnim>:<idleSpd>:<activeAnim>:<activeSpd>:<bright>:<rotOffset>
         await this.sendCommand(`SET_LED:${i}:${hexP}:${hexS}:${hexA}:${idleAnim}:${idleSpd}:${activeAnim}:${activeSpd}:${bright}:${rotOffset}`);
         await this.delay(20);
 
-        // Stream Decoupling Matrix (6 rows)
-        if (p.decouplingMatrix && p.decouplingMatrix.length === 6) {
-          for (let r = 0; r < 6; r++) {
-            const row = p.decouplingMatrix[r];
-            await this.sendCommand(`SET_MATRIX:${i}:${r}:${(row[0] ?? 0).toFixed(3)}:${(row[1] ?? 0).toFixed(3)}:${(row[2] ?? 0).toFixed(3)}:${(row[3] ?? 0).toFixed(3)}:${(row[4] ?? 0).toFixed(3)}:${(row[5] ?? 0).toFixed(3)}`);
-            await this.delay(10);
-          }
+        // SET_POWER:<lightSleepMin>:<deepSleepMin>
+        await this.sendCommand(`SET_POWER:15:60`);
+        await this.delay(20);
+
+        // SET_FILTERS
+        if (p.filters) {
+          await this.sendCommand(`SET_FILTERS:${p.filters.smoothingAlpha.toFixed(3)}:${(p.filters.jitterThreshold ?? 0.0).toFixed(2)}:${(p.filters.precisionMultiplier ?? 0.25).toFixed(2)}`);
+          await this.delay(20);
+          await this.sendCommand(`NVS_DOMINANT:${p.filters.dominantAxisOnly ? 1 : 0}`);
+          await this.delay(20);
         }
 
         // Stream Axis Maps (6 axes)
         for (let a = 0; a < 6; a++) {
+          // SET_MATRIX row
+          if (p.decouplingMatrix && p.decouplingMatrix.length === 6) {
+            const row = p.decouplingMatrix[a];
+            await this.sendCommand(`SET_MATRIX:${i}:${a}:${(row[0] ?? 0).toFixed(3)}:${(row[1] ?? 0).toFixed(3)}:${(row[2] ?? 0).toFixed(3)}:${(row[3] ?? 0).toFixed(3)}:${(row[4] ?? 0).toFixed(3)}:${(row[5] ?? 0).toFixed(3)}`);
+            await this.delay(10);
+          }
+
+          // SET_AXIS_MAP
           const axisKey = AXIS_NAMES[a];
           const axis = p.axes[axisKey];
           const outMode = getAxisOutputModeEnum(axis.outputMode);
@@ -583,15 +597,9 @@ class HardwareConnectionManager {
         }
       }
 
-      // 3. Set global filter configuration from active profile
+      // 3. (Filters are now set per profile above)
+
       const activeP = targetProfiles[activeIdx];
-      if (activeP && activeP.filters) {
-        if (onProgress) onProgress(88, 'Updating DSP kinematics filter configuration...');
-        await this.sendCommand(`SET_FILTERS:${activeP.filters.smoothingAlpha.toFixed(3)}:${(activeP.filters.jitterThreshold ?? 0.0).toFixed(2)}:${(activeP.filters.precisionMultiplier ?? 0.25).toFixed(2)}`);
-        await this.delay(20);
-        await this.sendCommand(`NVS_DOMINANT:${activeP.filters.dominantAxisOnly ? 1 : 0}`);
-        await this.delay(20);
-      }
 
       // 4. Commit to NVS Flash
       if (onProgress) onProgress(93, 'Writing NVS partition to physical ESP32 flash...');

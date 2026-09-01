@@ -614,6 +614,7 @@ void processSerialCommand(const char* cmd);
 void checkPowerManagement(uint32_t now);
 
 // Axis Response Curve Mathematical Transfer Functions
+// Applies mathematical response curves for fine motor control at the center and high-speed panning at the extremes.
 float applyAxisCurve(float inputVal, uint8_t curveType, float expoPower) {
   float sign = (inputVal >= 0.0f) ? 1.0f : -1.0f;
   float absVal = fabs(inputVal);
@@ -916,12 +917,12 @@ void updateZeroTare(uint32_t now) {
   tareState.nextSampleTime = now + 3; // 3ms non-blocking interval
 
   if (tareState.sampleCount >= 40) {
-    gyroBiasX = tareState.sumGx / 40.0f;
-    gyroBiasY = tareState.sumGy / 40.0f;
-    gyroBiasZ = tareState.sumGz / 40.0f;
-    accelBiasX = tareState.sumAx / 40.0f;
-    accelBiasY = tareState.sumAy / 40.0f;
-    accelBiasZ = (tareState.sumAz / 40.0f) - 9.80665f;
+    gyroBiasX = tareState.sumGx * 0.025f;
+    gyroBiasY = tareState.sumGy * 0.025f;
+    gyroBiasZ = tareState.sumGz * 0.025f;
+    accelBiasX = tareState.sumAx * 0.025f;
+    accelBiasY = tareState.sumAy * 0.025f;
+    accelBiasZ = (tareState.sumAz * 0.025f) - 9.80665f;
     pitchAngle = 0.0f;
     rollAngle = 0.0f;
     tareState.inProgress = false;
@@ -1012,20 +1013,19 @@ void processSerialCommand(const char* cmd) {
     return;
   }
 
-  // SET_PROFILE:<idx>:<hexColorPrimary>:<hexColorSecondary>:<hexColorAccent>:<sx>:<sy>:<sz>:<srx>:<sry>:<srz>:<dzX>:<dzY>:<dzZ>:<dzRx>:<dzRy>:<dzRz>:<invMask>
+  // SET_PROFILE:<idx>:<hexP>:<hexS>:<sx>:<sy>:<sz>:<srx>:<sry>:<srz>:<dzX>:<dzY>:<dzZ>:<dzRx>:<dzRy>:<dzRz>:<invMask>
   if (strncmp(cmd, "SET_PROFILE:", 12) == 0) {
     int idx = 0;
-    char hexP[16] = {0}, hexS[16] = {0}, hexA[16] = {0};
+    char hexP[16] = {0}, hexS[16] = {0};
     float sx = 1.0f, sy = 1.0f, sz = 1.0f, srx = 1.0f, sry = 1.0f, srz = 1.0f;
     float dzX = 8.0f, dzY = 8.0f, dzZ = 10.0f, dzRx = 8.0f, dzRy = 8.0f, dzRz = 10.0f;
     int invMask = 0;
-    if (sscanf(cmd + 12, "%d:%15[^:]:%15[^:]:%15[^:]:%f:%f:%f:%f:%f:%f:%f:%f:%f:%f:%f:%f:%d",
-               &idx, hexP, hexS, hexA, &sx, &sy, &sz, &srx, &sry, &srz,
-               &dzX, &dzY, &dzZ, &dzRx, &dzRy, &dzRz, &invMask) >= 4) {
+    if (sscanf(cmd + 12, "%d:%15[^:]:%15[^:]:%f:%f:%f:%f:%f:%f:%f:%f:%f:%f:%f:%f:%d",
+               &idx, hexP, hexS, &sx, &sy, &sz, &srx, &sry, &srz,
+               &dzX, &dzY, &dzZ, &dzRx, &dzRy, &dzRz, &invMask) == 16) {
       if (idx >= 0 && idx < MAX_PROFILES) {
         profilesMemory[idx].primaryColor   = (uint32_t)strtoul(hexP, NULL, 16);
         profilesMemory[idx].secondaryColor = (uint32_t)strtoul(hexS, NULL, 16);
-        profilesMemory[idx].accentColor    = (uint32_t)strtoul(hexA, NULL, 16);
         profilesMemory[idx].sensitivity[0] = sx;  profilesMemory[idx].sensitivity[1] = sy;  profilesMemory[idx].sensitivity[2] = sz;
         profilesMemory[idx].sensitivity[3] = srx; profilesMemory[idx].sensitivity[4] = sry; profilesMemory[idx].sensitivity[5] = srz;
         profilesMemory[idx].deadzone[0]    = dzX;  profilesMemory[idx].deadzone[1]    = dzY;  profilesMemory[idx].deadzone[2]    = dzZ;
@@ -1054,7 +1054,7 @@ void processSerialCommand(const char* cmd) {
     uint32_t pk0 = 0, pk1 = 0, pk2 = 0, pk3 = 0, nk0 = 0, nk1 = 0, nk2 = 0, nk3 = 0;
     if (sscanf(cmd + 13, "%d:%d:%d:%d:%f:%d:%u:%u:%u:%u:%u:%u:%u:%u",
                &pIdx, &aIdx, &outMode, &curve, &expo, &rate,
-               &pk0, &pk1, &pk2, &pk3, &nk0, &nk1, &nk2, &nk3) >= 6) {
+               &pk0, &pk1, &pk2, &pk3, &nk0, &nk1, &nk2, &nk3) == 14) {
       if (pIdx >= 0 && pIdx < MAX_PROFILES && aIdx >= 0 && aIdx < 6) {
         profilesMemory[pIdx].axisOutputMode[aIdx] = (uint8_t)outMode;
         profilesMemory[pIdx].axisCurveType[aIdx]  = (uint8_t)curve;
@@ -1078,7 +1078,7 @@ void processSerialCommand(const char* cmd) {
   // SET_POWER:<lightSleepMin>:<deepSleepMin>
   if (strncmp(cmd, "SET_POWER:", 10) == 0) {
     int lightMin = 15, deepMin = 60;
-    if (sscanf(cmd + 10, "%d:%d", &lightMin, &deepMin) >= 2) {
+    if (sscanf(cmd + 10, "%d:%d", &lightMin, &deepMin) == 2) {
       lightSleepTimeoutMs = (uint32_t)lightMin * 60 * 1000UL;
       deepSleepTimeoutMs  = (uint32_t)deepMin * 60 * 1000UL;
       saveProfilesToNvs();
@@ -1090,7 +1090,7 @@ void processSerialCommand(const char* cmd) {
   // SET_FILTERS:<alpha>:<jitter>:<precisionMult>
   if (strncmp(cmd, "SET_FILTERS:", 12) == 0) {
     float a = 0.32f, j = 0.0f, pMult = 0.25f;
-    if (sscanf(cmd + 12, "%f:%f:%f", &a, &j, &pMult) >= 3) {
+    if (sscanf(cmd + 12, "%f:%f:%f", &a, &j, &pMult) == 3) {
       if (a > 0.01f && a <= 1.0f) smoothingAlpha = a;
       runtimeConfig.jitterThreshold = j;
       runtimeConfig.precisionMultiplier = pMult;
@@ -1136,7 +1136,7 @@ void processSerialCommand(const char* cmd) {
   if (strncmp(cmd, "SET_MATRIX:", 11) == 0) {
     int pIdx = 0, row = 0;
     float m0 = 0, m1 = 0, m2 = 0, m3 = 0, m4 = 0, m5 = 0;
-    if (sscanf(cmd + 11, "%d:%d:%f:%f:%f:%f:%f:%f", &pIdx, &row, &m0, &m1, &m2, &m3, &m4, &m5) >= 8) {
+    if (sscanf(cmd + 11, "%d:%d:%f:%f:%f:%f:%f:%f", &pIdx, &row, &m0, &m1, &m2, &m3, &m4, &m5) == 8) {
       if (pIdx >= 0 && pIdx < MAX_PROFILES && row >= 0 && row < 6) {
         profilesMemory[pIdx].decouplingMatrix[row][0] = m0;
         profilesMemory[pIdx].decouplingMatrix[row][1] = m1;
@@ -1155,7 +1155,7 @@ void processSerialCommand(const char* cmd) {
   if (strncmp(cmd, "SET_KEY:", 8) == 0) {
     int pIdx = 0, kIdx = 0, isHold = 0, actType = 1, modMask = 0;
     uint32_t keyCode = 0;
-    if (sscanf(cmd + 8, "%d:%d:%d:%d:%d:%u", &pIdx, &kIdx, &isHold, &actType, &modMask, &keyCode) >= 4) {
+    if (sscanf(cmd + 8, "%d:%d:%d:%d:%d:%u", &pIdx, &kIdx, &isHold, &actType, &modMask, &keyCode) == 6) {
       if (pIdx >= 0 && pIdx < MAX_PROFILES && kIdx >= 0 && kIdx < 9) {
         uint16_t combo[4] = {0, 0, 0, 0};
         int slot = 0;
@@ -1183,7 +1183,7 @@ void processSerialCommand(const char* cmd) {
   if (strncmp(cmd, "SET_KEY4:", 9) == 0) {
     int pIdx = 0, kIdx = 0, isHold = 0, actType = 1;
     uint32_t k0 = 0, k1 = 0, k2 = 0, k3 = 0;
-    if (sscanf(cmd + 9, "%d:%d:%d:%d:%u:%u:%u:%u", &pIdx, &kIdx, &isHold, &actType, &k0, &k1, &k2, &k3) >= 4) {
+    if (sscanf(cmd + 9, "%d:%d:%d:%d:%u:%u:%u:%u", &pIdx, &kIdx, &isHold, &actType, &k0, &k1, &k2, &k3) == 8) {
       if (pIdx >= 0 && pIdx < MAX_PROFILES && kIdx >= 0 && kIdx < 9) {
         uint16_t combo[4] = {(uint16_t)k0, (uint16_t)k1, (uint16_t)k2, (uint16_t)k3};
         if (isHold == 0) {
@@ -1323,11 +1323,11 @@ void renderLedRing(uint32_t now) {
   const ProfileMemory& cur = profilesMemory[activeProfileIdx];
   uint32_t pCol = cur.primaryColor;
   uint32_t sCol = cur.secondaryColor;
-  float elapsedSec = (float)now / 1000.0f;
+  float elapsedSec = (float)now * 0.001f;
 
-  float defX = filtered6Dof[0] / 9.8f;
-  float defY = filtered6Dof[1] / 9.8f;
-  float defZ = filtered6Dof[2] / 9.8f;
+  float defX = filtered6Dof[0] * 0.102041f;
+  float defY = filtered6Dof[1] * 0.102041f;
+  float defZ = filtered6Dof[2] * 0.102041f;
   float linDeflection = sqrt(defX * defX + defY * defY + defZ * defZ);
   float rotDeflection = sqrt(filtered6Dof[3] * filtered6Dof[3] + filtered6Dof[4] * filtered6Dof[4] + filtered6Dof[5] * filtered6Dof[5]);
   float totalMotion = linDeflection + rotDeflection * 0.15f;
@@ -1335,11 +1335,11 @@ void renderLedRing(uint32_t now) {
 
   // 4. Render Active or Idle Pattern
   if (isDeflected) {
-    float activeSpeedVal = 0.04f + powf(((float)cur.activeSpeed - 1.0f) / 9.0f, 2.5f) * 10.0f;
+    float activeSpeedVal = 0.04f + powf(((float)cur.activeSpeed - 1.0f) * 0.111111f, 2.5f) * 10.0f;
     switch (cur.activeAnimation) {
       case 0: { // 0=rotational_twist_swirl (Kinematic Swirl)
         for (int i = 0; i < NEOPIXEL_COUNT; i++) {
-          float spin = fmod(fmod(((float)i / (float)NEOPIXEL_COUNT + elapsedSec * activeSpeedVal + filtered6Dof[5] * 0.4f), 1.0f) + 1.0f, 1.0f);
+          float spin = fmod(fmod(((float)i * 0.0416667f + elapsedSec * activeSpeedVal + filtered6Dof[5] * 0.4f), 1.0f) + 1.0f, 1.0f);
           uint32_t col = lerpColor(pCol, sCol, spin);
           strip.setPixelColor(getPhysicalLedIndex(i, rotOffset), col);
         }
@@ -1365,7 +1365,7 @@ void renderLedRing(uint32_t now) {
       case 3: { // 3=velocity_pulse (Velocity Ripple)
         float ripple = (sin(elapsedSec * activeSpeedVal * 8.0f + totalMotion * 12.0f) + 1.0f) * 0.5f;
         for (int i = 0; i < NEOPIXEL_COUNT; i++) {
-          float dist = (float)i / (float)NEOPIXEL_COUNT;
+          float dist = (float)i * 0.0416667f;
           float wave = (sin(dist * 2.0f * PI * 2.0f - elapsedSec * activeSpeedVal * 10.0f) + 1.0f) * 0.5f * ripple;
           uint32_t col = lerpColor(pCol, sCol, wave);
           strip.setPixelColor(getPhysicalLedIndex(i, rotOffset), col);
@@ -1377,7 +1377,7 @@ void renderLedRing(uint32_t now) {
     }
   } else {
     // IDLE PATTERNS
-    float idleSpeedCurve = 0.02f + powf(((float)cur.idleSpeed - 1.0f) / 9.0f, 2.5f) * 16.0f;
+    float idleSpeedCurve = 0.02f + powf(((float)cur.idleSpeed - 1.0f) * 0.111111f, 2.5f) * 16.0f;
     switch (cur.idleAnimation) {
       case 0: { // 0=breathing (Breathing Pulse)
         float phase = elapsedSec * idleSpeedCurve;
@@ -1390,7 +1390,7 @@ void renderLedRing(uint32_t now) {
       }
       case 1: { // 1=spinning (Radar Sweep)
         for (int i = 0; i < NEOPIXEL_COUNT; i++) {
-          float pos = fmod(fmod(((float)i / (float)NEOPIXEL_COUNT + elapsedSec * (idleSpeedCurve * 0.2f)), 1.0f) + 1.0f, 1.0f);
+          float pos = fmod(fmod(((float)i * 0.0416667f + elapsedSec * (idleSpeedCurve * 0.2f)), 1.0f) + 1.0f, 1.0f);
           uint32_t col = lerpColor(pCol, sCol, pos);
           strip.setPixelColor(getPhysicalLedIndex(i, rotOffset), col);
         }
@@ -1398,7 +1398,7 @@ void renderLedRing(uint32_t now) {
       }
       case 2: { // 2=rainbow_cycle (Rainbow Flow)
         for (int i = 0; i < NEOPIXEL_COUNT; i++) {
-          float hue = fmod(fmod(((float)i / (float)NEOPIXEL_COUNT + elapsedSec * (idleSpeedCurve * 0.15f)), 1.0f) + 1.0f, 1.0f) * 360.0f;
+          float hue = fmod(fmod(((float)i * 0.0416667f + elapsedSec * (idleSpeedCurve * 0.15f)), 1.0f) + 1.0f, 1.0f) * 360.0f;
           uint32_t col = hsvToRgb(hue, 1.0f, 1.0f);
           strip.setPixelColor(getPhysicalLedIndex(i, rotOffset), col);
         }
@@ -1407,7 +1407,7 @@ void renderLedRing(uint32_t now) {
       case 3: { // 3=two_halves_bouncing (Dual Orbit)
         float t = (sin(elapsedSec * (idleSpeedCurve * 0.3f)) + 1.0f) * 0.5f;
         for (int i = 0; i < NEOPIXEL_COUNT; i++) {
-          float dist = fabs((float)i - 12.0f) / 12.0f;
+          float dist = fabs((float)i - 12.0f) * 0.0833333f;
           float factor = (sin((dist + t) * PI) + 1.0f) * 0.5f;
           uint32_t col = lerpColor(pCol, sCol, factor);
           strip.setPixelColor(getPhysicalLedIndex(i, rotOffset), col);
@@ -1417,7 +1417,7 @@ void renderLedRing(uint32_t now) {
       case 4: { // 4=sweeping (Clockwise Chase)
         float head = fmod(fmod(elapsedSec * (idleSpeedCurve * 0.25f), 1.0f) + 1.0f, 1.0f) * (float)NEOPIXEL_COUNT;
         for (int i = 0; i < NEOPIXEL_COUNT; i++) {
-          float diff = fmod((float)i - head + (float)NEOPIXEL_COUNT, (float)NEOPIXEL_COUNT) / (float)NEOPIXEL_COUNT;
+          float diff = fmod((float)i - head + (float)NEOPIXEL_COUNT, (float)NEOPIXEL_COUNT) * 0.0416667f;
           uint32_t col = lerpColor(pCol, sCol, diff);
           strip.setPixelColor(getPhysicalLedIndex(i, rotOffset), col);
         }
@@ -1530,7 +1530,7 @@ void loop() {
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
 
-    float dt = (now - lastKinematicsTime) / 1000.0f;
+    float dt = (now - lastKinematicsTime) * 0.001f;
     if (dt <= 0.001f || dt > 0.1f) dt = 0.01f;
     lastKinematicsTime = now;
 
@@ -1556,7 +1556,7 @@ void loop() {
     float rawGz = g.gyro.z - gyroBiasZ;
 
     // 6x6 CROSS-TALK DECOUPLING MATRIX:
-    // Decouple axes BEFORE applying the low-pass alpha filter
+    // Resolves pure Cartesian kinematics (X,Y,Z,Rx,Ry,Rz) by canceling parasitic mechanical deflection.
     float rawVec[6] = { rawAx, rawAy, rawAz, rawGx, rawGy, rawGz };
     float decoupledVec[6] = { 0, 0, 0, 0, 0, 0 };
     const ProfileMemory& curProf = profilesMemory[activeProfileIdx];
@@ -1585,7 +1585,7 @@ void loop() {
 
       float rawVal = filtered6Dof[i] * runtimeConfig.sensitivity[i] * (runtimeConfig.inverted[i] ? -1.0f : 1.0f);
       float curvedVal = applyAxisCurve(rawVal, curProf.axisCurveType[i], curProf.axisExpoPower[i]);
-      float dzThreshold = runtimeConfig.deadzone[i] / 100.0f * 2.0f;
+      float dzThreshold = runtimeConfig.deadzone[i] * 0.02f;
 
       if (fabs(curvedVal) >= dzThreshold && dzThreshold > 0.0f) {
         uint16_t repRate = (curProf.axisRepeatRate[i] >= 20) ? curProf.axisRepeatRate[i] : 80;
@@ -1593,29 +1593,9 @@ void loop() {
           lastRepeatTime[i] = now;
           lastInteractionTime = now;
           if (curvedVal > 0.0f) {
-            if (outMode == 1) {
-              #if ENABLE_BLE_KEYBOARD
-              if (bleKeyboard.isConnected()) bleKeyboard.write(KEY_MEDIA_VOLUME_UP);
-              #endif
-            } else if (outMode == 2) {
-              #if ENABLE_BLE_KEYBOARD
-              if (bleKeyboard.isConnected()) bleKeyboard.write(KEY_MEDIA_NEXT_TRACK);
-              #endif
-            } else {
-              dispatchKeyCombo(curProf.axisPosKeyCodes[i]);
-            }
+            dispatchKeyCombo(curProf.axisPosKeyCodes[i]);
           } else {
-            if (outMode == 1) {
-              #if ENABLE_BLE_KEYBOARD
-              if (bleKeyboard.isConnected()) bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
-              #endif
-            } else if (outMode == 2) {
-              #if ENABLE_BLE_KEYBOARD
-              if (bleKeyboard.isConnected()) bleKeyboard.write(KEY_MEDIA_PREVIOUS_TRACK);
-              #endif
-            } else {
-              dispatchKeyCombo(curProf.axisNegKeyCodes[i]);
-            }
+            dispatchKeyCombo(curProf.axisNegKeyCodes[i]);
           }
         }
       }
