@@ -1,0 +1,7 @@
+{
+  "name": "OOFO One Studio",
+  "description": "ESP32 6-DOF OOFO One 3D controller configurator with Web Bluetooth & Web Serial, onboard multi-profile NVS flash storage, universal joystick axis remapping, 9-key mechanical matrix, 24-LED ring studio, and battery optimizer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
